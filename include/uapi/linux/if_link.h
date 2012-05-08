@@ -292,6 +292,7 @@ enum macvlan_mode {
 	MACVLAN_MODE_VEPA    = 2, /* talk to other ports through ext bridge */
 	MACVLAN_MODE_BRIDGE  = 4, /* talk to bridge ports directly */
 	MACVLAN_MODE_PASSTHRU = 8,/* take over the underlying device */
+	MACVLAN_MODE_VRRP    = 16,/* pass all packets to lowerdev */
 };
 
 #define MACVLAN_FLAG_NOPROMISC	1
