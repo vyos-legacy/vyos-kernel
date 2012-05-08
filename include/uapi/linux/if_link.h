@@ -380,6 +380,7 @@ enum macvlan_mode {
 	MACVLAN_MODE_BRIDGE  = 4, /* talk to bridge ports directly */
 	MACVLAN_MODE_PASSTHRU = 8,/* take over the underlying device */
 	MACVLAN_MODE_SOURCE  = 16,/* use source MAC address list to assign */
+	MACVLAN_MODE_VRRP    = 32,/* pass all packets to lowerdev */
 };
 
 enum macvlan_macaddr_mode {
