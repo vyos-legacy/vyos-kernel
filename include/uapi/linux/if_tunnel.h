@@ -18,6 +18,15 @@
 #define SIOCDEL6RD      (SIOCDEVPRIVATE + 10)
 #define SIOCCHG6RD      (SIOCDEVPRIVATE + 11)
 
+/* Vyatta extension for setting tunnel info from application */
+#define SIOCTUNNELSTATS	(SIOCDEVPRIVATE + 14)
+#define SIOCTUNNELINFO	(SIOCDEVPRIVATE + 15)
+
+struct ip_tunnel_info {
+	char driver[32];
+	char bus[32];
+};
+
 #define GRE_CSUM	__cpu_to_be16(0x8000)
 #define GRE_ROUTING	__cpu_to_be16(0x4000)
 #define GRE_KEY		__cpu_to_be16(0x2000)
