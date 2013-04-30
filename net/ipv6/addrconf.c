@@ -5202,6 +5202,7 @@ static inline void ipv6_store_devconf(struct ipv6_devconf *cnf,
 	array[DEVCONF_ADDR_GEN_MODE] = cnf->addr_gen_mode;
 	array[DEVCONF_DISABLE_POLICY] = cnf->disable_policy;
 	array[DEVCONF_NDISC_TCLASS] = cnf->ndisc_tclass;
+	array[DEVCONF_LINK_FILTER] = cnf->link_filter;
 }
 
 static inline size_t inet6_ifla6_size(void)
@@ -6500,6 +6501,14 @@ static const struct ctl_table addrconf_sysctl[] = {
 		.maxlen         = sizeof(int),
 		.mode           = 0644,
 		.proc_handler   = addrconf_sysctl_disable_policy,
+	},
+	/* Vyatta */
+	{
+		.procname	= "link_filter",
+		.data		= &ipv6_devconf.link_filter,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
 	},
 	{
 		.procname	= "ndisc_tclass",
