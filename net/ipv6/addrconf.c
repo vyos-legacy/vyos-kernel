@@ -4142,6 +4142,7 @@ static inline void ipv6_store_devconf(struct ipv6_devconf *cnf,
 	array[DEVCONF_FORCE_TLLAO] = cnf->force_tllao;
 	array[DEVCONF_NDISC_NOTIFY] = cnf->ndisc_notify;
 	array[DEVCONF_SUPPRESS_FRAG_NDISC] = cnf->suppress_frag_ndisc;
+	array[DEVCONF_LINK_FILTER] = cnf->link_filter;
 }
 
 static inline size_t inet6_ifla6_size(void)
@@ -4942,6 +4943,14 @@ static struct addrconf_sysctl_table
 			.maxlen		= sizeof(int),
 			.mode		= 0644,
 			.proc_handler	= proc_dointvec
+		},
+		/* Vyatta */
+		{
+			.procname       = "link_filter",
+			.data           = &ipv6_devconf.link_filter,
+			.maxlen         = sizeof(int),
+			.mode           = 0644,
+			.proc_handler   = proc_dointvec
 		},
 		{
 			/* sentinel */

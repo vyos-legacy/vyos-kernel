@@ -2111,6 +2111,8 @@ static struct devinet_sysctl_table {
 					      "promote_secondaries"),
 		DEVINET_SYSCTL_FLUSHING_ENTRY(ROUTE_LOCALNET,
 					      "route_localnet"),
+		/* Vyatta */
+		DEVINET_SYSCTL_RW_ENTRY(LINKFILTER, "link_filter"),
 	},
 };
 
