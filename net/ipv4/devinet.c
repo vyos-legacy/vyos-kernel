@@ -2310,6 +2310,8 @@ static struct devinet_sysctl_table {
 					      "route_localnet"),
 		DEVINET_SYSCTL_FLUSHING_ENTRY(DROP_UNICAST_IN_L2_MULTICAST,
 					      "drop_unicast_in_l2_multicast"),
+		/* VyOS */
+		DEVINET_SYSCTL_RW_ENTRY(LINKFILTER, "link_filter"),
 	},
 };
 

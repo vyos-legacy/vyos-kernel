@@ -590,6 +590,15 @@ static inline int rt6_check_dev(struct fib6_info *rt, int oif)
 	return 0;
 }
 
+static inline int rt6_link_filter(struct fib6_info *rt)
+{
+	const struct net_device *dev = rt->fib6_nh.nh_dev;
+	int linkf = __in6_dev_get(dev)->cnf.link_filter;
+
+	return (linkf && !netif_running(dev))
+		|| (linkf > 1 && !netif_carrier_ok(dev));
+}
+
 static inline enum rt6_nud_state rt6_check_neigh(struct fib6_info *rt)
 {
 	enum rt6_nud_state ret = RT6_NUD_FAIL_HARD;
@@ -629,6 +638,9 @@ static int rt6_score_route(struct fib6_info *rt, int oif, int strict)
 	m = rt6_check_dev(rt, oif);
 	if (!m && (strict & RT6_LOOKUP_F_IFACE))
 		return RT6_NUD_FAIL_HARD;
+	if (rt6_link_filter(rt))
+		return -1;
+
 #ifdef CONFIG_IPV6_ROUTER_PREF
 	m |= IPV6_DECODE_PREF(IPV6_EXTRACT_PREF(rt->fib6_flags)) << 2;
 #endif
