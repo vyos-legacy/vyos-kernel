@@ -75,6 +75,7 @@ struct ipv6_devconf {
 	__s32		disable_policy;
 
 	struct ctl_table_header *sysctl_header;
+	__s32		link_filter;	/* Vyatta */
 };
 
 struct ipv6_params {
