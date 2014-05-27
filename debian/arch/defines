@@ -1,0 +1,28 @@
+[abi]
+abiname: 1
+
+[base]
+arches:
+ i386 amd64
+compiler: gcc-4.4
+
+[image]
+initramfs-generators: initramfs-tools yaird initramfs-fallback
+type: kernel-package
+
+[xen]
+versions:
+ 3.0.4-1
+ 3.0.3-1
+
+[commands-image-initramfs-generators]
+initramfs-tools: mkinitramfs-kpkg
+yaird: mkinitrd.yaird
+
+[relations]
+gcc-4.4: gcc-4.4
+initramfs-fallback: linux-initramfs-tool
+initramfs-tools: initramfs-tools (>= 0.55)
+util-vserver: util-vserver (>= 0.30.210)
+yaird: yaird (>= 0.0.12-8)
+

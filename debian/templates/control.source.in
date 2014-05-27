@@ -1,0 +1,6 @@
+Source: linux-@major@
+Section: devel
+Priority: optional
+Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
+Standards-Version: 3.7.2.2
+Build-Depends: debhelper (>= 4.1.0), module-init-tools, dpkg-dev (>= 1.10.23), debianutils (>= 1.6), bzip2, sparc-utils [sparc], kernel-package (>= 10.063), python, python-minimal, findutils (>= 4.2.12)

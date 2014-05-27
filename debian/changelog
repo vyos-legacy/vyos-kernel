@@ -1,0 +1,5 @@
+linux-3.13 (3.13.0-1+vyos1+helium2) unstable; urgency=low
+
+  * Import 3.13 kernel source
+
+ -- Daniil Baturin <daniil@baturin.org>  Sun, 13 Apr 2014 00:00:00 +0700

@@ -1,0 +1,19 @@
+Package: linux-image-@upstreamversion@@abiname@@localversion@
+Section: admin
+Priority: optional
+Provides: linux-image, linux-image-@major@
+Depends: linux-modules-@upstreamversion@@abiname@@localversion@ (= ${Source-Version})
+Suggests: linux-doc-@version@
+Description: Linux @upstreamversion@ image on @class@
+ This package provides the binary image for
+ Linux kernel @upstreamversion@ on @longclass@ machines.
+ .
+ @desc@
+
+Package: linux-modules-@upstreamversion@@abiname@@localversion@
+Section: admin
+Priority: optional
+Depends: module-init-tools (>= 0.9.13)
+Description: Linux @upstreamversion@ modules on @class@
+ This package provides pre-built loadable modules for
+ Linux kernel @version@ on @longclass@ machines.

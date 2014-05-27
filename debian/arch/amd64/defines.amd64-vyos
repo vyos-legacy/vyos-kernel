@@ -1,0 +1,15 @@
+[base]
+flavours:
+ amd64-vyos
+kernel-arch: x86_64
+kernel-header-dirs: i386 x86_64
+
+[image]
+conflicts: grub (<= 0.95+cvs20040624-17)
+suggests: grub (>= 0.97-3) | lilo (>= 19.1)
+type: plain
+
+[amd64-vyos]
+class: amd64
+longclass: amd64 and compatible
+
