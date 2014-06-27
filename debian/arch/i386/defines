@@ -1,5 +1,5 @@
 [base]
-flavours: 586-vyos
+flavours: 586-vyos 586-vyos-virt
 kernel-arch: i386
 kernel-header-dirs: i386 x86_64
 
@@ -12,3 +12,6 @@ type: plain
 class: x86
 longclass: x86 and compatible
 
+[586-vyos-virt]
+class: x86
+longclass: x86 and compatible
