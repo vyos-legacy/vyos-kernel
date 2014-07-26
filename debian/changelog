@@ -1,3 +1,9 @@
+linux-3.13 (3.13.0-1+vyos1+helium3) unstable; urgency=low
+
+  * Force release
+
+ -- Daniil Baturin <daniil@baturin.org>  Sat, 26 Jul 2014 19:45:32 +0200
+
 linux-3.13 (3.13.0-1+vyos1+helium2) unstable; urgency=low
 
   * Import 3.13 kernel source
