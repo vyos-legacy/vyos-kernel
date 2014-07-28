@@ -1,3 +1,9 @@
+linux-3.13 (3.13.11-1+vyos1+helium4) unstable; urgency=low
+
+  * Merge to 3.13.11 kernel source
+
+ -- Kim Hagen <khagen@multi-development.com>  Mon, 28 Jul 2014 14:33:26 +0100
+
 linux-3.13 (3.13.0-1+vyos1+helium3) unstable; urgency=low
 
   * Force release
