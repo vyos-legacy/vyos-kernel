@@ -88,6 +88,35 @@ void cik_sdma_ring_ib_execute(struct radeon_device *rdev,
 }
 
 /**
+ * cik_sdma_hdp_flush_ring_emit - emit an hdp flush on the DMA ring
+ *
+ * @rdev: radeon_device pointer
+ * @ridx: radeon ring index
+ *
+ * Emit an hdp flush packet on the requested DMA ring.
+ */
+static void cik_sdma_hdp_flush_ring_emit(struct radeon_device *rdev,
+					 int ridx)
+{
+	struct radeon_ring *ring = &rdev->ring[ridx];
+	u32 extra_bits = (SDMA_POLL_REG_MEM_EXTRA_OP(1) |
+			  SDMA_POLL_REG_MEM_EXTRA_FUNC(3)); /* == */
+	u32 ref_and_mask;
+
+	if (ridx == R600_RING_TYPE_DMA_INDEX)
+		ref_and_mask = SDMA0;
+	else
+		ref_and_mask = SDMA1;
+
+	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_POLL_REG_MEM, 0, extra_bits));
+	radeon_ring_write(ring, GPU_HDP_FLUSH_DONE);
+	radeon_ring_write(ring, GPU_HDP_FLUSH_REQ);
+	radeon_ring_write(ring, ref_and_mask); /* reference */
+	radeon_ring_write(ring, ref_and_mask); /* mask */
+	radeon_ring_write(ring, (0xfff << 16) | 10); /* retry count, poll interval */
+}
+
+/**
  * cik_sdma_fence_ring_emit - emit a fence on the DMA ring
  *
  * @rdev: radeon_device pointer
@@ -111,12 +140,7 @@ void cik_sdma_fence_ring_emit(struct radeon_device *rdev,
 	/* generate an interrupt */
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_TRAP, 0, 0));
 	/* flush HDP */
-	/* We should be using the new POLL_REG_MEM special op packet here
-	 * but it causes sDMA to hang sometimes
-	 */
-	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));
-	radeon_ring_write(ring, HDP_MEM_COHERENCY_FLUSH_CNTL >> 2);
-	radeon_ring_write(ring, 0);
+	cik_sdma_hdp_flush_ring_emit(rdev, fence->ring);
 }
 
 /**
@@ -169,6 +193,8 @@ static void cik_sdma_gfx_stop(struct radeon_device *rdev)
 		WREG32(SDMA0_GFX_RB_CNTL + reg_offset, rb_cntl);
 		WREG32(SDMA0_GFX_IB_CNTL + reg_offset, 0);
 	}
+	rdev->ring[R600_RING_TYPE_DMA_INDEX].ready = false;
+	rdev->ring[CAYMAN_RING_TYPE_DMA1_INDEX].ready = false;
 }
 
 /**
@@ -195,6 +221,11 @@ void cik_sdma_enable(struct radeon_device *rdev, bool enable)
 {
 	u32 me_cntl, reg_offset;
 	int i;
+
+	if (enable == false) {
+		cik_sdma_gfx_stop(rdev);
+		cik_sdma_rlc_stop(rdev);
+	}
 
 	for (i = 0; i < 2; i++) {
 		if (i == 0)
@@ -323,10 +354,6 @@ static int cik_sdma_load_microcode(struct radeon_device *rdev)
 	if (!rdev->sdma_fw)
 		return -EINVAL;
 
-	/* stop the gfx rings and rlc compute queues */
-	cik_sdma_gfx_stop(rdev);
-	cik_sdma_rlc_stop(rdev);
-
 	/* halt the MEs */
 	cik_sdma_enable(rdev, false);
 
@@ -395,9 +422,6 @@ int cik_sdma_resume(struct radeon_device *rdev)
  */
 void cik_sdma_fini(struct radeon_device *rdev)
 {
-	/* stop the gfx rings and rlc compute queues */
-	cik_sdma_gfx_stop(rdev);
-	cik_sdma_rlc_stop(rdev);
 	/* halt the MEs */
 	cik_sdma_enable(rdev, false);
 	radeon_ring_fini(rdev, &rdev->ring[R600_RING_TYPE_DMA_INDEX]);
@@ -747,12 +771,7 @@ void cik_dma_vm_flush(struct radeon_device *rdev, int ridx, struct radeon_vm *vm
 	radeon_ring_write(ring, VMID(0));
 
 	/* flush HDP */
-	/* We should be using the new POLL_REG_MEM special op packet here
-	 * but it causes sDMA to hang sometimes
-	 */
-	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));
-	radeon_ring_write(ring, HDP_MEM_COHERENCY_FLUSH_CNTL >> 2);
-	radeon_ring_write(ring, 0);
+	cik_sdma_hdp_flush_ring_emit(rdev, ridx);
 
 	/* flush TLB */
 	radeon_ring_write(ring, SDMA_PACKET(SDMA_OPCODE_SRBM_WRITE, 0, 0xf000));

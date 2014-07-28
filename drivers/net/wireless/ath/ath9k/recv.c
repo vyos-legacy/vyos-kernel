@@ -733,11 +733,18 @@ static struct ath_rxbuf *ath_get_next_rx_buf(struct ath_softc *sc,
 			return NULL;
 
 		/*
-		 * mark descriptor as zero-length and set the 'more'
-		 * flag to ensure that both buffers get discarded
+		 * Re-check previous descriptor, in case it has been filled
+		 * in the mean time.
 		 */
-		rs->rs_datalen = 0;
-		rs->rs_more = true;
+		ret = ath9k_hw_rxprocdesc(ah, ds, rs);
+		if (ret == -EINPROGRESS) {
+			/*
+			 * mark descriptor as zero-length and set the 'more'
+			 * flag to ensure that both buffers get discarded
+			 */
+			rs->rs_datalen = 0;
+			rs->rs_more = true;
+		}
 	}
 
 	list_del(&bf->list);
@@ -851,20 +858,15 @@ static int ath9k_process_rate(struct ath_common *common,
 	enum ieee80211_band band;
 	unsigned int i = 0;
 	struct ath_softc __maybe_unused *sc = common->priv;
+	struct ath_hw *ah = sc->sc_ah;
 
-	band = hw->conf.chandef.chan->band;
+	band = ah->curchan->chan->band;
 	sband = hw->wiphy->bands[band];
 
-	switch (hw->conf.chandef.width) {
-	case NL80211_CHAN_WIDTH_5:
+	if (IS_CHAN_QUARTER_RATE(ah->curchan))
 		rxs->flag |= RX_FLAG_5MHZ;
-		break;
-	case NL80211_CHAN_WIDTH_10:
+	else if (IS_CHAN_HALF_RATE(ah->curchan))
 		rxs->flag |= RX_FLAG_10MHZ;
-		break;
-	default:
-		break;
-	}
 
 	if (rx_stats->rs_rate & 0x80) {
 		/* HT rate */
@@ -1171,32 +1173,32 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ieee80211_hdr *hdr;
 	bool discard_current = sc->rx.discard_next;
-	int ret = 0;
 
 	/*
 	 * Discard corrupt descriptors which are marked in
 	 * ath_get_next_rx_buf().
 	 */
-	sc->rx.discard_next = rx_stats->rs_more;
 	if (discard_current)
-		return -EINVAL;
+		goto corrupt;
+
+	sc->rx.discard_next = false;
 
 	/*
 	 * Discard zero-length packets.
 	 */
 	if (!rx_stats->rs_datalen) {
 		RX_STAT_INC(rx_len_err);
-		return -EINVAL;
+		goto corrupt;
 	}
 
-        /*
-         * rs_status follows rs_datalen so if rs_datalen is too large
-         * we can take a hint that hardware corrupted it, so ignore
-         * those frames.
-         */
+	/*
+	 * rs_status follows rs_datalen so if rs_datalen is too large
+	 * we can take a hint that hardware corrupted it, so ignore
+	 * those frames.
+	 */
 	if (rx_stats->rs_datalen > (common->rx_bufsize - ah->caps.rx_status_len)) {
 		RX_STAT_INC(rx_len_err);
-		return -EINVAL;
+		goto corrupt;
 	}
 
 	/* Only use status info from the last fragment */
@@ -1210,10 +1212,8 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 	 * This is different from the other corrupt descriptor
 	 * condition handled above.
 	 */
-	if (rx_stats->rs_status & ATH9K_RXERR_CORRUPT_DESC) {
-		ret = -EINVAL;
-		goto exit;
-	}
+	if (rx_stats->rs_status & ATH9K_RXERR_CORRUPT_DESC)
+		goto corrupt;
 
 	hdr = (struct ieee80211_hdr *) (skb->data + ah->caps.rx_status_len);
 
@@ -1229,18 +1229,15 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 		if (ath_process_fft(sc, hdr, rx_stats, rx_status->mactime))
 			RX_STAT_INC(rx_spectral);
 
-		ret = -EINVAL;
-		goto exit;
+		return -EINVAL;
 	}
 
 	/*
 	 * everything but the rate is checked here, the rate check is done
 	 * separately to avoid doing two lookups for a rate for each frame.
 	 */
-	if (!ath9k_rx_accept(common, hdr, rx_status, rx_stats, decrypt_error)) {
-		ret = -EINVAL;
-		goto exit;
-	}
+	if (!ath9k_rx_accept(common, hdr, rx_status, rx_stats, decrypt_error))
+		return -EINVAL;
 
 	rx_stats->is_mybeacon = ath9k_is_mybeacon(sc, hdr);
 	if (rx_stats->is_mybeacon) {
@@ -1248,15 +1245,19 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 		ath_start_rx_poll(sc, 3);
 	}
 
-	if (ath9k_process_rate(common, hw, rx_stats, rx_status)) {
-		ret =-EINVAL;
-		goto exit;
-	}
+	/*
+	 * This shouldn't happen, but have a safety check anyway.
+	 */
+	if (WARN_ON(!ah->curchan))
+		return -EINVAL;
+
+	if (ath9k_process_rate(common, hw, rx_stats, rx_status))
+		return -EINVAL;
 
 	ath9k_process_rssi(common, hw, rx_stats, rx_status);
 
-	rx_status->band = hw->conf.chandef.chan->band;
-	rx_status->freq = hw->conf.chandef.chan->center_freq;
+	rx_status->band = ah->curchan->chan->band;
+	rx_status->freq = ah->curchan->chan->center_freq;
 	rx_status->antenna = rx_stats->rs_antenna;
 	rx_status->flag |= RX_FLAG_MACTIME_END;
 
@@ -1266,9 +1267,11 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 		sc->rx.num_pkts++;
 #endif
 
-exit:
-	sc->rx.discard_next = false;
-	return ret;
+	return 0;
+
+corrupt:
+	sc->rx.discard_next = rx_stats->rs_more;
+	return -EINVAL;
 }
 
 static void ath9k_rx_skb_postprocess(struct ath_common *common,
