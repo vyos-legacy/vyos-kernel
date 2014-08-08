@@ -1874,8 +1874,6 @@ CONFIG_ATM_SOLOS=m
 #
 # CAIF transport drivers
 #
-# CONFIG_VHOST_NET is not set
-# CONFIG_VHOST_SCSI is not set
 
 #
 # Distributed Switch Architecture drivers
@@ -4650,8 +4648,7 @@ CONFIG_CRYPTO_DEV_PADLOCK_AES=m
 CONFIG_CRYPTO_DEV_PADLOCK_SHA=m
 # CONFIG_ASYMMETRIC_KEY_TYPE is not set
 CONFIG_HAVE_KVM=y
-CONFIG_VIRTUALIZATION=y
-# CONFIG_KVM is not set
+# CONFIG_VIRTUALIZATION is not set
 CONFIG_BINARY_PRINTF=y
 
 #
