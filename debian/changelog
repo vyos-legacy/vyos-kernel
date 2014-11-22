@@ -1,3 +1,33 @@
+linux-3.13 (3.13.11-1+vyos2+lithium1) lithium; urgency=low
+
+  [ VyOS build user ]
+  * * Enabled stack overflow protection (CONFIG_CC_STACKPROTECTOR)
+  * Revert "* Enabled stack overflow protection
+    (CONFIG_CC_STACKPROTECTOR)"
+  * * Disabled Virtualization (CONFIG_VIRTUALIZATION), since a router is
+    not ment to be a kvm host
+  * * Disabled kernel debugging (CONFIG_DEBUG_KERNEL), since nobody
+    develops drivers using a production config
+  * * Enabled RTL8723AE wifi drivers (CONFIG_RTL8723AE)
+  * * Enabled stack overflow protection (CONFIG_CC_STACKPROTECTOR)
+
+  [ Alex Harpin ]
+  * vyos-kernel: enable realtek rtl8723ae kernel modules for all configs
+  * vyos-kernel: enable kernel stack overflow protection for all configs
+  * vyos-kernel: disable host virtualisation in the 586-vyos-virt config
+  * vyos-kernel: disable kernel debugging for all configs
+  * vyos-kernel: enable VXLAN kernel module for 586-vyos kernel version
+
+  [ Daniil Baturin ]
+
+ -- Daniil Baturin <daniil@baturin.org>  Sat, 22 Nov 2014 21:55:58 +0100
+
+linux-3.13 (3.13.11-1+vyos2+lithium0) lithium; urgency=low
+
+  * Force release
+
+ -- Daniil Baturin <daniil@baturin.org>  Sat, 26 Jul 2014 19:45:32 +0200
+
 linux-3.13 (3.13.11-1+vyos1+helium5) unstable; urgency=low
 
   [ Bob Peterson ]
