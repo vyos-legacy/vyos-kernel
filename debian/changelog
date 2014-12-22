@@ -1,3 +1,9 @@
+linux-3.13 (3.13.11-1+vyos2+lithium3) lithium; urgency=low
+
+  * Update maintainer address
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Mon, 22 Dec 2014 21:46:18 +0000
+
 linux-3.13 (3.13.11-1+vyos2+lithium2) lithium; urgency=low
 
   * Force release
