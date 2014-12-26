@@ -1,3 +1,10 @@
+linux-3.13 (3.13.11-1+vyos1+helium7) unstable; urgency=low
+
+  [ Alex Harpin ]
+  * vti: reapply get rid of nf mark rule in prerouting
+  
+ -- Alex Harpin <development@landsofshadow.co.uk>  Fri, 26 Dec 2014 15:31:09 +0000
+ 
 linux-3.13 (3.13.11-1+vyos1+helium6) unstable; urgency=low
 
   [ VyOS build user ]
