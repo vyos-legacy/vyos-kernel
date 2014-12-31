@@ -1,3 +1,10 @@
+linux-3.13 (3.13.11-1+vyos2+lithium4) lithium; urgency=low
+
+  [ Alex Harpin ]
+  * vyos-kernel: enable IPv6 VTI kernel module for 586-vyos kernel version
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Wed, 31 Dec 2014 09:51:43 +0000
+ 
 linux-3.13 (3.13.11-1+vyos2+lithium3) lithium; urgency=low
 
   * Update maintainer address
