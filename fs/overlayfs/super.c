@@ -19,6 +19,7 @@
 #include <linux/sched.h>
 #include <linux/statfs.h>
 #include <linux/seq_file.h>
+#include <linux/inotify.h>
 #include "overlayfs.h"
 
 MODULE_AUTHOR("Miklos Szeredi <miklos@szeredi.hu>");
@@ -671,13 +672,39 @@ static struct file_system_type ovl_fs_type = {
 };
 MODULE_ALIAS_FS("overlayfs");
 
+static int ovl_inotify_path(struct path *dst, struct path *src)
+{
+	ovl_path_real(src->dentry, dst);
+
+	path_get(dst);
+
+	return 0;
+}
+
+static struct inotify_stackfs ovl_inotify = {
+	.fs_type	= &ovl_fs_type,
+	.func		= ovl_inotify_path,
+};
+
 static int __init ovl_init(void)
 {
-	return register_filesystem(&ovl_fs_type);
+	int ret;
+
+	ret = register_filesystem(&ovl_fs_type);
+	if (ret)
+		return ret;
+	ret = inotify_register_stackfs(&ovl_inotify);
+	if (ret) {
+		pr_err("overlayfs: hook inotify error\n");
+		unregister_filesystem(&ovl_fs_type);
+	}
+
+	return ret;
 }
 
 static void __exit ovl_exit(void)
 {
+	inotify_unregister_stackfs(&ovl_inotify);
 	unregister_filesystem(&ovl_fs_type);
 }
 

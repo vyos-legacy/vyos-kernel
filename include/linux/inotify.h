@@ -8,6 +8,8 @@
 
 #include <linux/sysctl.h>
 #include <uapi/linux/inotify.h>
+#include <linux/list.h>
+#include <linux/fs.h>
 
 extern struct ctl_table inotify_table[]; /* for sysctl */
 
@@ -18,5 +20,31 @@ extern struct ctl_table inotify_table[]; /* for sysctl */
 			  IN_Q_OVERFLOW | IN_IGNORED | IN_ONLYDIR | \
 			  IN_DONT_FOLLOW | IN_EXCL_UNLINK | IN_MASK_ADD | \
 			  IN_ISDIR | IN_ONESHOT)
+
+typedef int (*inotify_path_proc)(struct path *dst, struct path *src);
+
+struct inotify_stackfs {
+	struct list_head	list;		/* entry in inotify_fs_list */
+	struct file_system_type	*fs_type;	/* registed file_system_type */	
+	inotify_path_proc	func;		/* registed callback function */
+};
+
+#ifdef CONFIG_INOTIFY_STACKFS
+
+extern int inotify_register_stackfs(struct inotify_stackfs *fs);
+extern void inotify_unregister_stackfs(struct inotify_stackfs *fs);
+
+#else
+
+static inline int inotify_register_stackfs(struct inotify_stackfs *fs)
+{
+	return 0;
+}
+
+static inline void inotify_unregister_stackfs(struct inotify_stackfs *fs)
+{
+}
+
+#endif	/* CONFIG_INOTIFY_STACKFS */
 
 #endif	/* _LINUX_INOTIFY_H */
