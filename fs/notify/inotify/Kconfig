@@ -15,3 +15,12 @@ config INOTIFY_USER
 	  For more information, see <file:Documentation/filesystems/inotify.txt>
 
 	  If unsure, say Y.
+	  
+config INOTIFY_STACKFS
+	bool "Inotify support for stackable filesystem"
+	select INOTIFY_USER
+	default y
+	---help---
+	  Say Y here to enable inotify support for stackable filesystem.
+
+	  If unsure, say N.
