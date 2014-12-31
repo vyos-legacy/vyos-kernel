@@ -1,3 +1,11 @@
+linux-3.13 (3.13.11-1+vyos2+lithium5) lithium; urgency=low
+
+  [ Alex Harpin ]
+  * vyos-kernel: add inotify support for stackable filesystems (overlayfs)
+  * vyos-kernel: enable inotify support for stackable filesystems in config
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Wed, 31 Dec 2014 10:39:28 +0000
+ 
 linux-3.13 (3.13.11-1+vyos2+lithium4) lithium; urgency=low
 
   [ Alex Harpin ]
