@@ -1,3 +1,10 @@
+linux-3.13 (3.13.11-1+vyos1+helium8) unstable; urgency=low
+
+  [ Alex Harpin ]
+  * vyos-kernel: enable IPv6 VTI kernel module for 586-vyos kernel version
+  
+ -- Alex Harpin <development@landsofshadow.co.uk>  Wed, 07 Jan 2015 18:36:35 +0000
+ 
 linux-3.13 (3.13.11-1+vyos1+helium7) unstable; urgency=low
 
   [ Alex Harpin ]
