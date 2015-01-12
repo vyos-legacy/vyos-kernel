@@ -1,4 +1,4 @@
-linux-3.13 (3.13.11-1+vyos2+lithium5ubuntu1) precise; urgency=low
+linux-3.13 (3.13.11-1+vyos2+lithium6) precise; urgency=low
 
   * vyos-kernel: enable EFI stub to allow booting without separate bootloader
 
