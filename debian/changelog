@@ -1,3 +1,16 @@
+linux-3.13 (3.13.11-1+vyos2+lithium7) lithium; urgency=low
+
+  [ Kim Hagen ]
+  * vyos-kernel: enable EFI stub to allow booting without separate
+    bootloader
+  * 3.13.11-1+vyos2+lithium5ubuntu1
+  * Fix package name
+
+  [ Daniil Baturin ]
+  * Enable missing network drivers.
+
+ -- Daniil Baturin <daniil@baturin.org>  Mon, 09 Feb 2015 18:34:12 +0100
+
 linux-3.13 (3.13.11-1+vyos2+lithium6) precise; urgency=low
 
   * vyos-kernel: enable EFI stub to allow booting without separate bootloader
