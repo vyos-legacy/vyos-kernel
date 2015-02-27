@@ -1,3 +1,9 @@
+linux-3.13 (3.13.11-1+vyos1+helium9) unstable; urgency=low
+
+  * Enable missing network drivers.
+
+ -- Daniil Baturin <daniil@baturin.org>  Fri, 27 Feb 2015 21:07:46 +0100
+
 linux-3.13 (3.13.11-1+vyos1+helium8) unstable; urgency=low
 
   [ Alex Harpin ]
