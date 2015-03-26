@@ -1,3 +1,12 @@
+linux-3.13 (3.13.11-1+vyos1+helium10) unstable; urgency=low
+
+  [ Ian Wilson ]
+  * netfilter: Zero the tuple in nfnl_cthelper_parse_tuple()
+
+  [ Daniil Baturin ]
+
+ -- Daniil Baturin <daniil@baturin.org>  Thu, 26 Mar 2015 22:59:09 +0100
+
 linux-3.13 (3.13.11-1+vyos1+helium9) unstable; urgency=low
 
   * Enable missing network drivers.
