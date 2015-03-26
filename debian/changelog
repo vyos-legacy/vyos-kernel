@@ -1,3 +1,12 @@
+linux-3.13 (3.13.11-1+vyos2+lithium8) lithium; urgency=low
+
+  [ Ian Wilson ]
+  * netfilter: Zero the tuple in nfnl_cthelper_parse_tuple()
+
+  [ Daniil Baturin ]
+
+ -- Daniil Baturin <daniil@baturin.org>  Thu, 26 Mar 2015 23:00:55 +0100
+
 linux-3.13 (3.13.11-1+vyos2+lithium7) lithium; urgency=low
 
   [ Kim Hagen ]
