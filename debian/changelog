@@ -1,3 +1,9 @@
+linux-3.13 (3.13.11-1+vyos2+lithium9) lithium; urgency=low
+
+  * netfilter: vyos-kernel: update dh_gencontrol with new development build flag
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Wed, 24 Jun 2015 08:24:18 +0100
+ 
 linux-3.13 (3.13.11-1+vyos2+lithium8) lithium; urgency=low
 
   [ Ian Wilson ]
