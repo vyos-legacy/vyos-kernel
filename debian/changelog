@@ -1,3 +1,13 @@
+linux-3.13 (3.13.11-1+vyos2+lithium10) lithium; urgency=low
+
+  [ Zoltan Kiss ]
+  * xen-netfront: Fix handling packets on compound pages with skb_linearize
+  
+  [ David Vrabel ]
+  * xen-netfront: use correct linear area after linearizing an skb
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Thu, 02 Jul 2015 21:14:26 +0100
+ 
 linux-3.13 (3.13.11-1+vyos2+lithium9) lithium; urgency=low
 
   * netfilter: vyos-kernel: update dh_gencontrol with new development build flag
