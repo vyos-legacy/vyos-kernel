@@ -1,3 +1,12 @@
+linux-3.13 (3.13.11-1+vyos2+lithium12) lithium; urgency=low
+
+  [ Thomas Jepp ]
+  * Build the XHCI module into the kernel. This allows VyOS to boot from USB
+
+  [ Alex Harpin ]
+  
+ -- Alex Harpin <development@landsofshadow.co.uk>  Thu, 19 Nov 2015 23:17:27 +0000
+
 linux-3.13 (3.13.11-1+vyos2+lithium11) lithium; urgency=low
 
   [ Eric Dumazet ]
