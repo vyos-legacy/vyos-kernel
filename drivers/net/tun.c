@@ -210,7 +210,7 @@ struct tun_struct {
 	uint8_t			duplex;
 	uint32_t		speed;
 	struct rtnl_link_stats64 *link_stats;
-	struct ip_tunnel_info	info;
+	struct vy_ip_tunnel_info	info;
 };
 
 #ifdef CONFIG_TUN_VNET_CROSS_LE
@@ -962,7 +962,7 @@ static int
 tun_net_set_info(struct net_device *dev, const void __user *data)
 {
 	struct tun_struct *tun = netdev_priv(dev);
-	struct ip_tunnel_info info;
+	struct vy_ip_tunnel_info info;
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;

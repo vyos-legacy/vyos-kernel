@@ -22,7 +22,7 @@
 #define SIOCTUNNELSTATS	(SIOCDEVPRIVATE + 14)
 #define SIOCTUNNELINFO	(SIOCDEVPRIVATE + 15)
 
-struct ip_tunnel_info {
+struct vy_ip_tunnel_info {
 	char driver[32];
 	char bus[32];
 };
