@@ -1,7 +1,7 @@
 /*******************************************************************************
  *
- * Intel Ethernet Controller XL710 Family Linux Driver
- * Copyright(c) 2013 Intel Corporation.
+ * Intel(R) 40-10 Gigabit Ethernet Connection Network Driver
+ * Copyright(c) 2013 - 2016 Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -11,10 +11,6 @@
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * The full GNU General Public License is included in this distribution in
  * the file called "COPYING".
@@ -60,30 +56,33 @@
  * of the virtchnl_msg structure.
  */
 enum i40e_virtchnl_ops {
-/* VF sends req. to pf for the following
- * ops.
+/* The PF sends status change events to VFs using
+ * the I40E_VIRTCHNL_OP_EVENT opcode.
+ * VFs send requests to the PF using the other ops.
  */
 	I40E_VIRTCHNL_OP_UNKNOWN = 0,
 	I40E_VIRTCHNL_OP_VERSION = 1, /* must ALWAYS be 1 */
-	I40E_VIRTCHNL_OP_RESET_VF,
-	I40E_VIRTCHNL_OP_GET_VF_RESOURCES,
-	I40E_VIRTCHNL_OP_CONFIG_TX_QUEUE,
-	I40E_VIRTCHNL_OP_CONFIG_RX_QUEUE,
-	I40E_VIRTCHNL_OP_CONFIG_VSI_QUEUES,
-	I40E_VIRTCHNL_OP_CONFIG_IRQ_MAP,
-	I40E_VIRTCHNL_OP_ENABLE_QUEUES,
-	I40E_VIRTCHNL_OP_DISABLE_QUEUES,
-	I40E_VIRTCHNL_OP_ADD_ETHER_ADDRESS,
-	I40E_VIRTCHNL_OP_DEL_ETHER_ADDRESS,
-	I40E_VIRTCHNL_OP_ADD_VLAN,
-	I40E_VIRTCHNL_OP_DEL_VLAN,
-	I40E_VIRTCHNL_OP_CONFIG_PROMISCUOUS_MODE,
-	I40E_VIRTCHNL_OP_GET_STATS,
-	I40E_VIRTCHNL_OP_FCOE,
-/* PF sends status change events to vfs using
- * the following op.
- */
-	I40E_VIRTCHNL_OP_EVENT,
+	I40E_VIRTCHNL_OP_RESET_VF = 2,
+	I40E_VIRTCHNL_OP_GET_VF_RESOURCES = 3,
+	I40E_VIRTCHNL_OP_CONFIG_TX_QUEUE = 4,
+	I40E_VIRTCHNL_OP_CONFIG_RX_QUEUE = 5,
+	I40E_VIRTCHNL_OP_CONFIG_VSI_QUEUES = 6,
+	I40E_VIRTCHNL_OP_CONFIG_IRQ_MAP = 7,
+	I40E_VIRTCHNL_OP_ENABLE_QUEUES = 8,
+	I40E_VIRTCHNL_OP_DISABLE_QUEUES = 9,
+	I40E_VIRTCHNL_OP_ADD_ETHER_ADDRESS = 10,
+	I40E_VIRTCHNL_OP_DEL_ETHER_ADDRESS = 11,
+	I40E_VIRTCHNL_OP_ADD_VLAN = 12,
+	I40E_VIRTCHNL_OP_DEL_VLAN = 13,
+	I40E_VIRTCHNL_OP_CONFIG_PROMISCUOUS_MODE = 14,
+	I40E_VIRTCHNL_OP_GET_STATS = 15,
+	I40E_VIRTCHNL_OP_FCOE = 16,
+	I40E_VIRTCHNL_OP_EVENT = 17, /* must ALWAYS be 17 */
+	I40E_VIRTCHNL_OP_CONFIG_RSS_KEY = 23,
+	I40E_VIRTCHNL_OP_CONFIG_RSS_LUT = 24,
+	I40E_VIRTCHNL_OP_GET_RSS_HENA_CAPS = 25,
+	I40E_VIRTCHNL_OP_SET_RSS_HENA = 26,
+
 };
 
 /* Virtual channel message descriptor. This overlays the admin queue
@@ -112,7 +111,9 @@ struct i40e_virtchnl_msg {
  * error regardless of version mismatch.
  */
 #define I40E_VIRTCHNL_VERSION_MAJOR		1
-#define I40E_VIRTCHNL_VERSION_MINOR		0
+#define I40E_VIRTCHNL_VERSION_MINOR		1
+#define I40E_VIRTCHNL_VERSION_MINOR_NO_VF_CAPS	0
+
 struct i40e_virtchnl_version_info {
 	u32 major;
 	u32 minor;
@@ -131,7 +132,8 @@ struct i40e_virtchnl_version_info {
  */
 
 /* I40E_VIRTCHNL_OP_GET_VF_RESOURCES
- * VF sends this request to PF with no parameters
+ * Version 1.0 VF sends this request to PF with no parameters
+ * Version 1.1 VF sends this request to PF with u32 bitmap of its capabilities
  * PF responds with an indirect message containing
  * i40e_virtchnl_vf_resource and one or more
  * i40e_virtchnl_vsi_resource structures.
@@ -142,12 +144,19 @@ struct i40e_virtchnl_vsi_resource {
 	u16 num_queue_pairs;
 	enum i40e_vsi_type vsi_type;
 	u16 qset_handle;
-	u8 default_mac_addr[I40E_ETH_LENGTH_OF_ADDRESS];
+	u8 default_mac_addr[ETH_ALEN];
 };
 /* VF offload flags */
-#define I40E_VIRTCHNL_VF_OFFLOAD_L2	0x00000001
-#define I40E_VIRTCHNL_VF_OFFLOAD_FCOE	0x00000004
-#define I40E_VIRTCHNL_VF_OFFLOAD_VLAN	0x00010000
+#define I40E_VIRTCHNL_VF_OFFLOAD_L2		0x00000001
+#define I40E_VIRTCHNL_VF_OFFLOAD_IWARP		0x00000002
+#define I40E_VIRTCHNL_VF_OFFLOAD_FCOE		0x00000004
+#define I40E_VIRTCHNL_VF_OFFLOAD_RSS_AQ		0x00000008
+#define I40E_VIRTCHNL_VF_OFFLOAD_RSS_REG	0x00000010
+#define I40E_VIRTCHNL_VF_OFFLOAD_WB_ON_ITR	0x00000020
+#define I40E_VIRTCHNL_VF_OFFLOAD_VLAN		0x00010000
+#define I40E_VIRTCHNL_VF_OFFLOAD_RX_POLLING	0x00020000
+#define I40E_VIRTCHNL_VF_OFFLOAD_RSS_PCTYPE_V2	0x00040000
+#define I40E_VIRTCHNL_VF_OFFLOAD_RSS_PF		0X00080000
 
 struct i40e_virtchnl_vf_resource {
 	u16 num_vsis;
@@ -156,8 +165,8 @@ struct i40e_virtchnl_vf_resource {
 	u16 max_mtu;
 
 	u32 vf_offload_flags;
-	u32 max_fcoe_contexts;
-	u32 max_fcoe_filters;
+	u32 rss_key_size;
+	u32 rss_lut_size;
 
 	struct i40e_virtchnl_vsi_resource vsi_res[1];
 };
@@ -265,7 +274,7 @@ struct i40e_virtchnl_queue_select {
  */
 
 struct i40e_virtchnl_ether_addr {
-	u8 addr[I40E_ETH_LENGTH_OF_ADDRESS];
+	u8 addr[ETH_ALEN];
 	u8 pad[2];
 };
 
@@ -316,6 +325,39 @@ struct i40e_virtchnl_promisc_info {
  * PF replies with struct i40e_eth_stats in an external buffer.
  */
 
+/* I40E_VIRTCHNL_OP_CONFIG_RSS_KEY
+ * I40E_VIRTCHNL_OP_CONFIG_RSS_LUT
+ * VF sends these messages to configure RSS. Only supported if both PF
+ * and VF drivers set the I40E_VIRTCHNL_VF_OFFLOAD_RSS_PF bit during
+ * configuration negotiation. If this is the case, then the rss fields in
+ * the vf resource struct are valid.
+ * Both the key and LUT are initialized to 0 by the PF, meaning that
+ * RSS is effectively disabled until set up by the VF.
+ */
+struct i40e_virtchnl_rss_key {
+	u16 vsi_id;
+	u16 key_len;
+	u8 key[1];         /* RSS hash key, packed bytes */
+};
+
+struct i40e_virtchnl_rss_lut {
+	u16 vsi_id;
+	u16 lut_entries;
+	u8 lut[1];        /* RSS lookup table*/
+};
+
+/* I40E_VIRTCHNL_OP_GET_RSS_HENA_CAPS
+ * I40E_VIRTCHNL_OP_SET_RSS_HENA
+ * VF sends these messages to get and set the hash filter enable bits for RSS.
+ * By default, the PF sets these to all possible traffic types that the
+ * hardware supports. The VF can query this value if it wants to change the
+ * traffic types that are hashed by the hardware.
+ * Traffic types are defined in the i40e_filter_pctype enum in i40e_type.h
+ */
+struct i40e_virtchnl_rss_hena {
+	u64 hena;
+};
+
 /* I40E_VIRTCHNL_OP_EVENT
  * PF sends this message to inform the VF driver of events that may affect it.
  * No direct response is expected from the VF, though it may generate other
@@ -328,6 +370,8 @@ enum i40e_virtchnl_event_codes {
 	I40E_VIRTCHNL_EVENT_PF_DRIVER_CLOSE,
 };
 #define I40E_PF_EVENT_SEVERITY_INFO		0
+#define I40E_PF_EVENT_SEVERITY_ATTENTION	1
+#define I40E_PF_EVENT_SEVERITY_ACTION_REQUIRED	2
 #define I40E_PF_EVENT_SEVERITY_CERTAIN_DOOM	255
 
 struct i40e_virtchnl_pf_event {
@@ -341,10 +385,6 @@ struct i40e_virtchnl_pf_event {
 
 	int severity;
 };
-
-/* The following are TBD, not necessary for LAN functionality.
- * I40E_VIRTCHNL_OP_FCOE
- */
 
 /* VF reset states - these are written into the RSTAT register:
  * I40E_VFGEN_RSTAT1 on the PF

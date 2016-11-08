@@ -1,7 +1,7 @@
 /*******************************************************************************
  *
- * Intel Ethernet Controller XL710 Family Linux Driver
- * Copyright(c) 2013 Intel Corporation.
+ * Intel(R) 40-10 Gigabit Ethernet Connection Network Driver
+ * Copyright(c) 2013 - 2016 Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -11,10 +11,6 @@
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * The full GNU General Public License is included in this distribution in
  * the file called "COPYING".
@@ -34,50 +30,54 @@
 #include "i40e_adminq.h"
 #include "i40e_hmc.h"
 #include "i40e_lan_hmc.h"
+#include "i40e_devids.h"
 
-/* Device IDs */
-#define I40E_SFP_XL710_DEVICE_ID	0x1572
-#define I40E_SFP_X710_DEVICE_ID		0x1573
-#define I40E_QEMU_DEVICE_ID		0x1574
-#define I40E_KX_A_DEVICE_ID		0x157F
-#define I40E_KX_B_DEVICE_ID		0x1580
-#define I40E_KX_C_DEVICE_ID		0x1581
-#define I40E_KX_D_DEVICE_ID		0x1582
-#define I40E_QSFP_A_DEVICE_ID		0x1583
-#define I40E_QSFP_B_DEVICE_ID		0x1584
-#define I40E_QSFP_C_DEVICE_ID		0x1585
-#define I40E_VF_DEVICE_ID		0x154C
-#define I40E_VF_HV_DEVICE_ID		0x1571
+#define UNREFERENCED_XPARAMETER
 
-#define I40E_FW_API_VERSION_MAJOR  0x0001
-#define I40E_FW_API_VERSION_MINOR  0x0000
+/* I40E_MASK is a macro used on 32 bit registers */
+#define I40E_MASK(mask, shift) (mask << shift)
 
+#define I40E_MAX_PF			16
+#define I40E_MAX_PF_VSI			64
+#define I40E_MAX_PF_QP			128
 #define I40E_MAX_VSI_QP			16
 #define I40E_MAX_VF_VSI			3
 #define I40E_MAX_CHAINED_RX_BUFFERS	5
+#define I40E_MAX_PF_UDP_OFFLOAD_PORTS	16
+
+/* something less than 1 minute */
+#define I40E_HEARTBEAT_TIMEOUT		(HZ * 50)
 
 /* Max default timeout in ms, */
 #define I40E_MAX_NVM_TIMEOUT		18000
 
-/* Check whether address is multicast.  This is little-endian specific check.*/
-#define I40E_IS_MULTICAST(address)	\
-	(bool)(((u8 *)(address))[0] & ((u8)0x01))
+/* Check whether address is multicast. */
+#define is_multicast_ether_addr(address) (bool)(((u8 *)(address))[0] & ((u8)0x01))
 
 /* Check whether an address is broadcast. */
 #define I40E_IS_BROADCAST(address)	\
 	((((u8 *)(address))[0] == ((u8)0xff)) && \
 	(((u8 *)(address))[1] == ((u8)0xff)))
 
-/* Switch from mc to the 2usec global time (this is the GTIME resolution) */
-#define I40E_MS_TO_GTIME(time)		(((time) * 1000) / 2)
+/* Switch from ms to the 1usec global time (this is the GTIME resolution) */
+#define I40E_MS_TO_GTIME(time)		((time) * 1000)
 
 /* forward declaration */
 struct i40e_hw;
 typedef void (*I40E_ADMINQ_CALLBACK)(struct i40e_hw *, struct i40e_aq_desc *);
 
-#define I40E_ETH_LENGTH_OF_ADDRESS	6
-
 /* Data type manipulation macros. */
+
+
+#define I40E_HI_BYTE(x)		((u8)(((x) >> 8) & 0xFF))
+#define I40E_LO_BYTE(x)		((u8)((x) & 0xFF))
+
+/* Number of Transmit Descriptors must be a multiple of 8. */
+#define I40E_REQ_TX_DESCRIPTOR_MULTIPLE	8
+/* Number of Receive Descriptors must be a multiple of 32 if
+ * the number of descriptors is greater than 32.
+ */
+#define I40E_REQ_RX_DESCRIPTOR_MULTIPLE	32
 
 #define I40E_DESC_UNUSED(R)	\
 	((((R)->next_to_clean > (R)->next_to_use) ? 0 : (R)->count) + \
@@ -85,9 +85,10 @@ typedef void (*I40E_ADMINQ_CALLBACK)(struct i40e_hw *, struct i40e_aq_desc *);
 
 /* bitfields for Tx queue mapping in QTX_CTL */
 #define I40E_QTX_CTL_VF_QUEUE	0x0
+#define I40E_QTX_CTL_VM_QUEUE	0x1
 #define I40E_QTX_CTL_PF_QUEUE	0x2
 
-/* debug masks */
+/* debug masks - set these bits in hw->debug_mask to control output */
 enum i40e_debug_mask {
 	I40E_DEBUG_INIT			= 0x00000001,
 	I40E_DEBUG_RELEASE		= 0x00000002,
@@ -100,17 +101,63 @@ enum i40e_debug_mask {
 	I40E_DEBUG_FLOW			= 0x00000200,
 	I40E_DEBUG_DCB			= 0x00000400,
 	I40E_DEBUG_DIAG			= 0x00000800,
+	I40E_DEBUG_FD			= 0x00001000,
 
-	I40E_DEBUG_AQ_MESSAGE		= 0x01000000, /* for i40e_debug() */
+	I40E_DEBUG_AQ_MESSAGE		= 0x01000000,
 	I40E_DEBUG_AQ_DESCRIPTOR	= 0x02000000,
 	I40E_DEBUG_AQ_DESC_BUFFER	= 0x04000000,
-	I40E_DEBUG_AQ_COMMAND		= 0x06000000, /* for i40e_debug_aq() */
+	I40E_DEBUG_AQ_COMMAND		= 0x06000000,
 	I40E_DEBUG_AQ			= 0x0F000000,
 
 	I40E_DEBUG_USER			= 0xF0000000,
 
 	I40E_DEBUG_ALL			= 0xFFFFFFFF
 };
+
+/* PCI Bus Info */
+#define I40E_PCI_LINK_STATUS		0xB2
+#define I40E_PCI_LINK_WIDTH		0x3F0
+#define I40E_PCI_LINK_WIDTH_1		0x10
+#define I40E_PCI_LINK_WIDTH_2		0x20
+#define I40E_PCI_LINK_WIDTH_4		0x40
+#define I40E_PCI_LINK_WIDTH_8		0x80
+#define I40E_PCI_LINK_SPEED		0xF
+#define I40E_PCI_LINK_SPEED_2500	0x1
+#define I40E_PCI_LINK_SPEED_5000	0x2
+#define I40E_PCI_LINK_SPEED_8000	0x3
+
+#define I40E_MDIO_STCODE		0
+#define I40E_MDIO_OPCODE_ADDRESS	0
+#define I40E_MDIO_OPCODE_WRITE		I40E_MASK(1, \
+						  I40E_GLGEN_MSCA_OPCODE_SHIFT)
+#define I40E_MDIO_OPCODE_READ_INC_ADDR	I40E_MASK(2, \
+						  I40E_GLGEN_MSCA_OPCODE_SHIFT)
+#define I40E_MDIO_OPCODE_READ		I40E_MASK(3, \
+						  I40E_GLGEN_MSCA_OPCODE_SHIFT)
+
+#define I40E_PHY_COM_REG_PAGE			0x1E
+#define I40E_PHY_LED_LINK_MODE_MASK		0xF0
+#define I40E_PHY_LED_MANUAL_ON			0x100
+#define I40E_PHY_LED_PROV_REG_1			0xC430
+#define I40E_PHY_LED_MODE_MASK			0xFFFF
+#define I40E_PHY_LED_MODE_ORIG			0x80000000
+
+/* Memory types */
+enum i40e_memset_type {
+	I40E_NONDMA_MEM = 0,
+	I40E_DMA_MEM
+};
+
+/* Memcpy types */
+enum i40e_memcpy_type {
+	I40E_NONDMA_TO_NONDMA = 0,
+	I40E_NONDMA_TO_DMA,
+	I40E_DMA_TO_DMA,
+	I40E_DMA_TO_NONDMA
+};
+
+#define I40E_FW_API_VERSION_MINOR_X722	0x0005
+#define I40E_FW_API_VERSION_MINOR_X710	0x0005
 
 /* These are structs for managing the hardware information and the operations.
  * The structures of function pointers are filled out at init time when we
@@ -125,6 +172,8 @@ enum i40e_mac_type {
 	I40E_MAC_X710,
 	I40E_MAC_XL710,
 	I40E_MAC_VF,
+	I40E_MAC_X722,
+	I40E_MAC_X722_VF,
 	I40E_MAC_GENERIC,
 };
 
@@ -134,6 +183,7 @@ enum i40e_media_type {
 	I40E_MEDIA_TYPE_BASET,
 	I40E_MEDIA_TYPE_BACKPLANE,
 	I40E_MEDIA_TYPE_CX4,
+	I40E_MEDIA_TYPE_DA,
 	I40E_MEDIA_TYPE_VIRTUAL
 };
 
@@ -146,15 +196,23 @@ enum i40e_fc_mode {
 	I40E_FC_DEFAULT
 };
 
+enum i40e_set_fc_aq_failures {
+	I40E_SET_FC_AQ_FAIL_NONE = 0,
+	I40E_SET_FC_AQ_FAIL_GET = 1,
+	I40E_SET_FC_AQ_FAIL_SET = 2,
+	I40E_SET_FC_AQ_FAIL_UPDATE = 4,
+	I40E_SET_FC_AQ_FAIL_SET_UPDATE = 6
+};
+
 enum i40e_vsi_type {
-	I40E_VSI_MAIN = 0,
-	I40E_VSI_VMDQ1,
-	I40E_VSI_VMDQ2,
-	I40E_VSI_CTRL,
-	I40E_VSI_FCOE,
-	I40E_VSI_MIRROR,
-	I40E_VSI_SRIOV,
-	I40E_VSI_FDIR,
+	I40E_VSI_MAIN	= 0,
+	I40E_VSI_VMDQ1	= 1,
+	I40E_VSI_VMDQ2	= 2,
+	I40E_VSI_CTRL	= 3,
+	I40E_VSI_FCOE	= 4,
+	I40E_VSI_MIRROR	= 5,
+	I40E_VSI_SRIOV	= 6,
+	I40E_VSI_FDIR	= 7,
 	I40E_VSI_TYPE_UNKNOWN
 };
 
@@ -171,21 +229,86 @@ struct i40e_link_status {
 	u8 link_info;
 	u8 an_info;
 	u8 ext_info;
+	u8 loopback;
 	/* is Link Status Event notification to SW enabled */
 	bool lse_enable;
+	u16 max_frame_size;
+	bool crc_enable;
+	u8 pacing;
+	u8 requested_speeds;
+	u8 module_type[3];
+	/* 1st byte: module identifier */
+#define I40E_MODULE_TYPE_SFP		0x03
+#define I40E_MODULE_TYPE_QSFP		0x0D
+	/* 2nd byte: ethernet compliance codes for 10/40G */
+#define I40E_MODULE_TYPE_40G_ACTIVE	0x01
+#define I40E_MODULE_TYPE_40G_LR4	0x02
+#define I40E_MODULE_TYPE_40G_SR4	0x04
+#define I40E_MODULE_TYPE_40G_CR4	0x08
+#define I40E_MODULE_TYPE_10G_BASE_SR	0x10
+#define I40E_MODULE_TYPE_10G_BASE_LR	0x20
+#define I40E_MODULE_TYPE_10G_BASE_LRM	0x40
+#define I40E_MODULE_TYPE_10G_BASE_ER	0x80
+	/* 3rd byte: ethernet compliance codes for 1G */
+#define I40E_MODULE_TYPE_1000BASE_SX	0x01
+#define I40E_MODULE_TYPE_1000BASE_LX	0x02
+#define I40E_MODULE_TYPE_1000BASE_CX	0x04
+#define I40E_MODULE_TYPE_1000BASE_T	0x08
+};
+
+enum i40e_aq_capabilities_phy_type {
+	I40E_CAP_PHY_TYPE_SGMII			= BIT(I40E_PHY_TYPE_SGMII),
+	I40E_CAP_PHY_TYPE_1000BASE_KX		= BIT(I40E_PHY_TYPE_1000BASE_KX),
+	I40E_CAP_PHY_TYPE_10GBASE_KX4		= BIT(I40E_PHY_TYPE_10GBASE_KX4),
+	I40E_CAP_PHY_TYPE_10GBASE_KR		= BIT(I40E_PHY_TYPE_10GBASE_KR),
+	I40E_CAP_PHY_TYPE_40GBASE_KR4		= BIT(I40E_PHY_TYPE_40GBASE_KR4),
+	I40E_CAP_PHY_TYPE_XAUI			= BIT(I40E_PHY_TYPE_XAUI),
+	I40E_CAP_PHY_TYPE_XFI			= BIT(I40E_PHY_TYPE_XFI),
+	I40E_CAP_PHY_TYPE_SFI			= BIT(I40E_PHY_TYPE_SFI),
+	I40E_CAP_PHY_TYPE_XLAUI			= BIT(I40E_PHY_TYPE_XLAUI),
+	I40E_CAP_PHY_TYPE_XLPPI			= BIT(I40E_PHY_TYPE_XLPPI),
+	I40E_CAP_PHY_TYPE_40GBASE_CR4_CU	= BIT(I40E_PHY_TYPE_40GBASE_CR4_CU),
+	I40E_CAP_PHY_TYPE_10GBASE_CR1_CU	= BIT(I40E_PHY_TYPE_10GBASE_CR1_CU),
+	I40E_CAP_PHY_TYPE_10GBASE_AOC		= BIT(I40E_PHY_TYPE_10GBASE_AOC),
+	I40E_CAP_PHY_TYPE_40GBASE_AOC		= BIT(I40E_PHY_TYPE_40GBASE_AOC),
+	I40E_CAP_PHY_TYPE_100BASE_TX		= BIT(I40E_PHY_TYPE_100BASE_TX),
+	I40E_CAP_PHY_TYPE_1000BASE_T		= BIT(I40E_PHY_TYPE_1000BASE_T),
+	I40E_CAP_PHY_TYPE_10GBASE_T		= BIT(I40E_PHY_TYPE_10GBASE_T),
+	I40E_CAP_PHY_TYPE_10GBASE_SR		= BIT(I40E_PHY_TYPE_10GBASE_SR),
+	I40E_CAP_PHY_TYPE_10GBASE_LR		= BIT(I40E_PHY_TYPE_10GBASE_LR),
+	I40E_CAP_PHY_TYPE_10GBASE_SFPP_CU	= BIT(I40E_PHY_TYPE_10GBASE_SFPP_CU),
+	I40E_CAP_PHY_TYPE_10GBASE_CR1		= BIT(I40E_PHY_TYPE_10GBASE_CR1),
+	I40E_CAP_PHY_TYPE_40GBASE_CR4		= BIT(I40E_PHY_TYPE_40GBASE_CR4),
+	I40E_CAP_PHY_TYPE_40GBASE_SR4		= BIT(I40E_PHY_TYPE_40GBASE_SR4),
+	I40E_CAP_PHY_TYPE_40GBASE_LR4		= BIT(I40E_PHY_TYPE_40GBASE_LR4),
+	I40E_CAP_PHY_TYPE_1000BASE_SX		= BIT(I40E_PHY_TYPE_1000BASE_SX),
+	I40E_CAP_PHY_TYPE_1000BASE_LX		= BIT(I40E_PHY_TYPE_1000BASE_LX),
+	I40E_CAP_PHY_TYPE_1000BASE_T_OPTICAL	= BIT(I40E_PHY_TYPE_1000BASE_T_OPTICAL),
+	I40E_CAP_PHY_TYPE_20GBASE_KR2		= BIT(I40E_PHY_TYPE_20GBASE_KR2)
 };
 
 struct i40e_phy_info {
 	struct i40e_link_status link_info;
 	struct i40e_link_status link_info_old;
-	u32 autoneg_advertised;
-	u32 phy_id;
-	u32 module_type;
 	bool get_link_info;
 	enum i40e_media_type media_type;
+	/* all the phy types the NVM is capable of */
+	u32 phy_types;
 };
 
 #define I40E_HW_CAP_MAX_GPIO			30
+#define I40E_HW_CAP_MDIO_PORT_MODE_MDIO		0
+#define I40E_HW_CAP_MDIO_PORT_MODE_I2C		1
+
+enum i40e_acpi_programming_method {
+	I40E_ACPI_PROGRAMMING_METHOD_HW_FVL = 0,
+	I40E_ACPI_PROGRAMMING_METHOD_AQC_FPK = 1
+};
+
+#define I40E_WOL_SUPPORT_MASK			1
+#define I40E_ACPI_PROGRAMMING_METHOD_MASK	(1 << 1)
+#define I40E_PROXY_SUPPORT_MASK			(1 << 2)
+
 /* Capabilities of a PF or a VF or the whole device */
 struct i40e_hw_capabilities {
 	u32  switch_mode;
@@ -203,7 +326,23 @@ struct i40e_hw_capabilities {
 	bool evb_802_1_qbh; /* Bridge Port Extension */
 	bool dcb;
 	bool fcoe;
-	bool mfp_mode_1;
+	bool iscsi; /* Indicates iSCSI enabled */
+	bool flex10_enable;
+	bool flex10_capable;
+	u32  flex10_mode;
+#define I40E_FLEX10_MODE_UNKNOWN	0x0
+#define I40E_FLEX10_MODE_DCC		0x1
+#define I40E_FLEX10_MODE_DCI		0x2
+
+	u32 flex10_status;
+#define I40E_FLEX10_STATUS_DCC_ERROR	0x1
+#define I40E_FLEX10_STATUS_VC_MODE	0x2
+
+	bool sec_rev_disabled;
+	bool update_disabled;
+#define I40E_NVM_MGMT_SEC_REV_DISABLED	0x1
+#define I40E_NVM_MGMT_UPDATE_DISABLED	0x2
+
 	bool mgmt_cem;
 	bool ieee_1588;
 	bool iwarp;
@@ -232,13 +371,18 @@ struct i40e_hw_capabilities {
 	u8 rx_buf_chain_len;
 	u32 enabled_tcmap;
 	u32 maxtc;
+	u64 wr_csr_prot;
+	bool apm_wol_support;
+	enum i40e_acpi_programming_method acpi_prog_method;
+	bool proxy_support;
 };
 
 struct i40e_mac_info {
 	enum i40e_mac_type type;
-	u8 addr[I40E_ETH_LENGTH_OF_ADDRESS];
-	u8 perm_addr[I40E_ETH_LENGTH_OF_ADDRESS];
-	u8 san_addr[I40E_ETH_LENGTH_OF_ADDRESS];
+	u8 addr[ETH_ALEN];
+	u8 perm_addr[ETH_ALEN];
+	u8 san_addr[ETH_ALEN];
+	u8 port_addr[ETH_ALEN];
 	u16 max_fcoeq;
 };
 
@@ -252,13 +396,74 @@ enum i40e_aq_resource_access_type {
 };
 
 struct i40e_nvm_info {
-	u64 hw_semaphore_timeout; /* 2usec global time (GTIME resolution) */
-	u64 hw_semaphore_wait;    /* - || - */
+	u64 hw_semaphore_timeout; /* usec global time (GTIME resolution) */
 	u32 timeout;              /* [ms] */
 	u16 sr_size;              /* Shadow RAM size in words */
 	bool blank_nvm_mode;      /* is NVM empty (no FW present)*/
 	u16 version;              /* NVM package version */
 	u32 eetrack;              /* NVM data version */
+	u32 oem_ver;              /* OEM version info */
+};
+
+/* definitions used in NVM update support */
+
+enum i40e_nvmupd_cmd {
+	I40E_NVMUPD_INVALID,
+	I40E_NVMUPD_READ_CON,
+	I40E_NVMUPD_READ_SNT,
+	I40E_NVMUPD_READ_LCB,
+	I40E_NVMUPD_READ_SA,
+	I40E_NVMUPD_WRITE_ERA,
+	I40E_NVMUPD_WRITE_CON,
+	I40E_NVMUPD_WRITE_SNT,
+	I40E_NVMUPD_WRITE_LCB,
+	I40E_NVMUPD_WRITE_SA,
+	I40E_NVMUPD_CSUM_CON,
+	I40E_NVMUPD_CSUM_SA,
+	I40E_NVMUPD_CSUM_LCB,
+	I40E_NVMUPD_STATUS,
+	I40E_NVMUPD_EXEC_AQ,
+	I40E_NVMUPD_GET_AQ_RESULT,
+};
+
+enum i40e_nvmupd_state {
+	I40E_NVMUPD_STATE_INIT,
+	I40E_NVMUPD_STATE_READING,
+	I40E_NVMUPD_STATE_WRITING,
+	I40E_NVMUPD_STATE_INIT_WAIT,
+	I40E_NVMUPD_STATE_WRITE_WAIT,
+};
+
+/* nvm_access definition and its masks/shifts need to be accessible to
+ * application, core driver, and shared code.  Where is the right file?
+ */
+#define I40E_NVM_READ	0xB
+#define I40E_NVM_WRITE	0xC
+
+#define I40E_NVM_MOD_PNT_MASK 0xFF
+
+#define I40E_NVM_TRANS_SHIFT	8
+#define I40E_NVM_TRANS_MASK	(0xf << I40E_NVM_TRANS_SHIFT)
+#define I40E_NVM_CON		0x0
+#define I40E_NVM_SNT		0x1
+#define I40E_NVM_LCB		0x2
+#define I40E_NVM_SA		(I40E_NVM_SNT | I40E_NVM_LCB)
+#define I40E_NVM_ERA		0x4
+#define I40E_NVM_CSUM		0x8
+#define I40E_NVM_EXEC		0xf
+
+#define I40E_NVM_ADAPT_SHIFT	16
+#define I40E_NVM_ADAPT_MASK	(0xffffULL << I40E_NVM_ADAPT_SHIFT)
+
+#define I40E_NVMUPD_MAX_DATA	4096
+#define I40E_NVMUPD_IFACE_TIMEOUT 2 /* seconds */
+
+struct i40e_nvm_access {
+	u32 command;
+	u32 config;
+	u32 offset;	/* in bytes */
+	u32 data_size;	/* in bytes */
+	u8 data[1];
 };
 
 /* PCI bus types */
@@ -317,9 +522,20 @@ struct i40e_fc_info {
 #define I40E_MAX_USER_PRIORITY		8
 #define I40E_DCBX_MAX_APPS		32
 #define I40E_LLDPDU_SIZE		1500
+#define I40E_TLV_STATUS_OPER		0x1
+#define I40E_TLV_STATUS_SYNC		0x2
+#define I40E_TLV_STATUS_ERR		0x4
+#define I40E_CEE_OPER_MAX_APPS		3
+#define I40E_APP_PROTOID_FCOE		0x8906
+#define I40E_APP_PROTOID_ISCSI		0x0cbc
+#define I40E_APP_PROTOID_FIP		0x8914
+#define I40E_APP_SEL_ETHTYPE		0x1
+#define I40E_APP_SEL_TCPIP		0x2
+#define I40E_CEE_APP_SEL_ETHTYPE	0x0
+#define I40E_CEE_APP_SEL_TCPIP		0x1
 
-/* IEEE 802.1Qaz ETS Configuration data */
-struct i40e_ieee_ets_config {
+/* CEE or IEEE 802.1Qaz ETS Configuration data */
+struct i40e_dcb_ets_config {
 	u8 willing;
 	u8 cbs;
 	u8 maxtcs;
@@ -328,34 +544,33 @@ struct i40e_ieee_ets_config {
 	u8 tsatable[I40E_MAX_TRAFFIC_CLASS];
 };
 
-/* IEEE 802.1Qaz ETS Recommendation data */
-struct i40e_ieee_ets_recommend {
-	u8 prioritytable[I40E_MAX_TRAFFIC_CLASS];
-	u8 tcbwtable[I40E_MAX_TRAFFIC_CLASS];
-	u8 tsatable[I40E_MAX_TRAFFIC_CLASS];
-};
-
-/* IEEE 802.1Qaz PFC Configuration data */
-struct i40e_ieee_pfc_config {
+/* CEE or IEEE 802.1Qaz PFC Configuration data */
+struct i40e_dcb_pfc_config {
 	u8 willing;
 	u8 mbc;
 	u8 pfccap;
 	u8 pfcenable;
 };
 
-/* IEEE 802.1Qaz Application Priority data */
-struct i40e_ieee_app_priority_table {
+/* CEE or IEEE 802.1Qaz Application Priority data */
+struct i40e_dcb_app_priority_table {
 	u8  priority;
 	u8  selector;
 	u16 protocolid;
 };
 
 struct i40e_dcbx_config {
+	u8  dcbx_mode;
+#define I40E_DCBX_MODE_CEE	0x1
+#define I40E_DCBX_MODE_IEEE	0x2
+	u8  app_mode;
+#define I40E_DCBX_APPS_NON_WILLING	0x1
 	u32 numapps;
-	struct i40e_ieee_ets_config etscfg;
-	struct i40e_ieee_ets_recommend etsrec;
-	struct i40e_ieee_pfc_config pfc;
-	struct i40e_ieee_app_priority_table app[I40E_DCBX_MAX_APPS];
+	u32 tlv_status; /* CEE mode TLV status */
+	struct i40e_dcb_ets_config etscfg;
+	struct i40e_dcb_ets_config etsrec;
+	struct i40e_dcb_pfc_config pfc;
+	struct i40e_dcb_app_priority_table app[I40E_DCBX_MAX_APPS];
 };
 
 /* Port hardware description */
@@ -363,7 +578,7 @@ struct i40e_hw {
 	u8 __iomem *hw_addr;
 	void *back;
 
-	/* function pointer structs */
+	/* subsystem structs */
 	struct i40e_phy_info phy;
 	struct i40e_mac_info mac;
 	struct i40e_bus_info bus;
@@ -390,11 +605,23 @@ struct i40e_hw {
 	u8  pf_id;
 	u16 main_vsi_seid;
 
+	/* for multi-function MACs */
+	u16 partition_id;
+	u16 num_partitions;
+	u16 num_ports;
+
 	/* Closest numa node to the device */
 	u16 numa_node;
 
 	/* Admin Queue info */
 	struct i40e_adminq_info aq;
+
+	/* state of nvm update process */
+	enum i40e_nvmupd_state nvmupd_state;
+	struct i40e_aq_desc nvm_wb_desc;
+	struct i40e_virt_mem nvm_buff;
+	bool nvm_release_on_done;
+	u16 nvm_wait_opcode;
 
 	/* HMC info */
 	struct i40e_hmc_info hmc; /* HMC info struct */
@@ -403,18 +630,34 @@ struct i40e_hw {
 	u16 dcbx_status;
 
 	/* DCBX info */
-	struct i40e_dcbx_config local_dcbx_config;
-	struct i40e_dcbx_config remote_dcbx_config;
+	struct i40e_dcbx_config local_dcbx_config; /* Oper/Local Cfg */
+	struct i40e_dcbx_config remote_dcbx_config; /* Peer Cfg */
+	struct i40e_dcbx_config desired_dcbx_config; /* CEE Desired Cfg */
+
+	/* WoL and proxy support */
+	u16 num_wol_proxy_filters;
+	u16 wol_proxy_vsi_seid;
+
+#define I40E_HW_FLAG_AQ_SRCTL_ACCESS_ENABLE BIT_ULL(0)
+	u64 flags;
 
 	/* debug mask */
 	u32 debug_mask;
+	char err_str[16];
 };
+
+static INLINE bool i40e_is_vf(struct i40e_hw *hw)
+{
+	return (hw->mac.type == I40E_MAC_VF ||
+		hw->mac.type == I40E_MAC_X722_VF);
+}
 
 struct i40e_driver_version {
 	u8 major_version;
 	u8 minor_version;
 	u8 build_version;
 	u8 subbuild_version;
+	u8 driver_string[32];
 };
 
 /* RX Descriptors */
@@ -465,6 +708,10 @@ union i40e_32byte_rx_desc {
 			union {
 				__le32 rss; /* RSS Hash */
 				__le32 fcoe_param; /* FCoE DDP Context id */
+				/* Flow director filter id in case of
+				 * Programming status desc WB
+				 */
+				__le32 fd_id;
 			} hi_dword;
 		} qword0;
 		struct {
@@ -490,8 +737,12 @@ union i40e_32byte_rx_desc {
 	} wb;  /* writeback */
 };
 
-#define I40E_RXD_QW1_STATUS_SHIFT	0
-#define I40E_RXD_QW1_STATUS_MASK	(0x7FFFUL << I40E_RXD_QW1_STATUS_SHIFT)
+#define I40E_RXD_QW0_MIRROR_STATUS_SHIFT	8
+#define I40E_RXD_QW0_MIRROR_STATUS_MASK	(0x3FUL << \
+					 I40E_RXD_QW0_MIRROR_STATUS_SHIFT)
+#define I40E_RXD_QW0_FCOEINDX_SHIFT	0
+#define I40E_RXD_QW0_FCOEINDX_MASK	(0xFFFUL << \
+					 I40E_RXD_QW0_FCOEINDX_SHIFT)
 
 enum i40e_rx_desc_status_bits {
 	/* Note: These are predefined bit offsets */
@@ -500,17 +751,34 @@ enum i40e_rx_desc_status_bits {
 	I40E_RX_DESC_STATUS_L2TAG1P_SHIFT	= 2,
 	I40E_RX_DESC_STATUS_L3L4P_SHIFT		= 3,
 	I40E_RX_DESC_STATUS_CRCP_SHIFT		= 4,
-	I40E_RX_DESC_STATUS_TSYNINDX_SHIFT	= 5, /* 3 BITS */
-	I40E_RX_DESC_STATUS_PIF_SHIFT		= 8,
+	I40E_RX_DESC_STATUS_TSYNINDX_SHIFT	= 5, /* 2 BITS */
+	I40E_RX_DESC_STATUS_TSYNVALID_SHIFT	= 7,
+	I40E_RX_DESC_STATUS_EXT_UDP_0_SHIFT	= 8,
+
 	I40E_RX_DESC_STATUS_UMBCAST_SHIFT	= 9, /* 2 BITS */
 	I40E_RX_DESC_STATUS_FLM_SHIFT		= 11,
 	I40E_RX_DESC_STATUS_FLTSTAT_SHIFT	= 12, /* 2 BITS */
-	I40E_RX_DESC_STATUS_LPBK_SHIFT		= 14
+	I40E_RX_DESC_STATUS_LPBK_SHIFT		= 14,
+	I40E_RX_DESC_STATUS_IPV6EXADD_SHIFT	= 15,
+	I40E_RX_DESC_STATUS_RESERVED2_SHIFT	= 16, /* 2 BITS */
+	I40E_RX_DESC_STATUS_INT_UDP_0_SHIFT	= 18,
+	I40E_RX_DESC_STATUS_LAST /* this entry must be last!!! */
 };
 
+#define I40E_RXD_QW1_STATUS_SHIFT	0
+#define I40E_RXD_QW1_STATUS_MASK	((BIT(I40E_RX_DESC_STATUS_LAST) - 1) << \
+					 I40E_RXD_QW1_STATUS_SHIFT)
+
 #define I40E_RXD_QW1_STATUS_TSYNINDX_SHIFT   I40E_RX_DESC_STATUS_TSYNINDX_SHIFT
-#define I40E_RXD_QW1_STATUS_TSYNINDX_MASK	(0x7UL << \
+#define I40E_RXD_QW1_STATUS_TSYNINDX_MASK	(0x3UL << \
 					     I40E_RXD_QW1_STATUS_TSYNINDX_SHIFT)
+
+#define I40E_RXD_QW1_STATUS_TSYNVALID_SHIFT  I40E_RX_DESC_STATUS_TSYNVALID_SHIFT
+#define I40E_RXD_QW1_STATUS_TSYNVALID_MASK   BIT_ULL(I40E_RXD_QW1_STATUS_TSYNVALID_SHIFT)
+
+#define I40E_RXD_QW1_STATUS_UMBCAST_SHIFT	I40E_RX_DESC_STATUS_UMBCAST
+#define I40E_RXD_QW1_STATUS_UMBCAST_MASK	(0x3UL << \
+					 I40E_RXD_QW1_STATUS_UMBCAST_SHIFT)
 
 enum i40e_rx_desc_fltstat_values {
 	I40E_RX_DESC_FLTSTAT_NO_DATA	= 0,
@@ -518,6 +786,11 @@ enum i40e_rx_desc_fltstat_values {
 	I40E_RX_DESC_FLTSTAT_RSV	= 2,
 	I40E_RX_DESC_FLTSTAT_RSS_HASH	= 3,
 };
+
+#define I40E_RXD_PACKET_TYPE_UNICAST	0
+#define I40E_RXD_PACKET_TYPE_MULTICAST	1
+#define I40E_RXD_PACKET_TYPE_BROADCAST	2
+#define I40E_RXD_PACKET_TYPE_MIRRORED	3
 
 #define I40E_RXD_QW1_ERROR_SHIFT	19
 #define I40E_RXD_QW1_ERROR_MASK		(0xFFUL << I40E_RXD_QW1_ERROR_SHIFT)
@@ -531,7 +804,8 @@ enum i40e_rx_desc_error_bits {
 	I40E_RX_DESC_ERROR_IPE_SHIFT		= 3,
 	I40E_RX_DESC_ERROR_L4E_SHIFT		= 4,
 	I40E_RX_DESC_ERROR_EIPE_SHIFT		= 5,
-	I40E_RX_DESC_ERROR_OVERSIZE_SHIFT	= 6
+	I40E_RX_DESC_ERROR_OVERSIZE_SHIFT	= 6,
+	I40E_RX_DESC_ERROR_PPRS_SHIFT		= 7
 };
 
 enum i40e_rx_desc_error_l3l4e_fcoe_masks {
@@ -547,28 +821,32 @@ enum i40e_rx_desc_error_l3l4e_fcoe_masks {
 
 /* Packet type non-ip values */
 enum i40e_rx_l2_ptype {
-	I40E_RX_PTYPE_L2_RESERVED		= 0,
-	I40E_RX_PTYPE_L2_MAC_PAY2		= 1,
-	I40E_RX_PTYPE_L2_TIMESYNC_PAY2		= 2,
-	I40E_RX_PTYPE_L2_FIP_PAY2		= 3,
-	I40E_RX_PTYPE_L2_OUI_PAY2		= 4,
-	I40E_RX_PTYPE_L2_MACCNTRL_PAY2		= 5,
-	I40E_RX_PTYPE_L2_LLDP_PAY2		= 6,
-	I40E_RX_PTYPE_L2_ECP_PAY2		= 7,
-	I40E_RX_PTYPE_L2_EVB_PAY2		= 8,
-	I40E_RX_PTYPE_L2_QCN_PAY2		= 9,
-	I40E_RX_PTYPE_L2_EAPOL_PAY2		= 10,
-	I40E_RX_PTYPE_L2_ARP			= 11,
-	I40E_RX_PTYPE_L2_FCOE_PAY3		= 12,
-	I40E_RX_PTYPE_L2_FCOE_FCDATA_PAY3	= 13,
-	I40E_RX_PTYPE_L2_FCOE_FCRDY_PAY3	= 14,
-	I40E_RX_PTYPE_L2_FCOE_FCRSP_PAY3	= 15,
-	I40E_RX_PTYPE_L2_FCOE_FCOTHER_PA	= 16,
-	I40E_RX_PTYPE_L2_FCOE_VFT_PAY3		= 17,
-	I40E_RX_PTYPE_L2_FCOE_VFT_FCDATA	= 18,
-	I40E_RX_PTYPE_L2_FCOE_VFT_FCRDY		= 19,
-	I40E_RX_PTYPE_L2_FCOE_VFT_FCRSP		= 20,
-	I40E_RX_PTYPE_L2_FCOE_VFT_FCOTHER	= 21
+	I40E_RX_PTYPE_L2_RESERVED			= 0,
+	I40E_RX_PTYPE_L2_MAC_PAY2			= 1,
+	I40E_RX_PTYPE_L2_TIMESYNC_PAY2			= 2,
+	I40E_RX_PTYPE_L2_FIP_PAY2			= 3,
+	I40E_RX_PTYPE_L2_OUI_PAY2			= 4,
+	I40E_RX_PTYPE_L2_MACCNTRL_PAY2			= 5,
+	I40E_RX_PTYPE_L2_LLDP_PAY2			= 6,
+	I40E_RX_PTYPE_L2_ECP_PAY2			= 7,
+	I40E_RX_PTYPE_L2_EVB_PAY2			= 8,
+	I40E_RX_PTYPE_L2_QCN_PAY2			= 9,
+	I40E_RX_PTYPE_L2_EAPOL_PAY2			= 10,
+	I40E_RX_PTYPE_L2_ARP				= 11,
+	I40E_RX_PTYPE_L2_FCOE_PAY3			= 12,
+	I40E_RX_PTYPE_L2_FCOE_FCDATA_PAY3		= 13,
+	I40E_RX_PTYPE_L2_FCOE_FCRDY_PAY3		= 14,
+	I40E_RX_PTYPE_L2_FCOE_FCRSP_PAY3		= 15,
+	I40E_RX_PTYPE_L2_FCOE_FCOTHER_PA		= 16,
+	I40E_RX_PTYPE_L2_FCOE_VFT_PAY3			= 17,
+	I40E_RX_PTYPE_L2_FCOE_VFT_FCDATA		= 18,
+	I40E_RX_PTYPE_L2_FCOE_VFT_FCRDY			= 19,
+	I40E_RX_PTYPE_L2_FCOE_VFT_FCRSP			= 20,
+	I40E_RX_PTYPE_L2_FCOE_VFT_FCOTHER		= 21,
+	I40E_RX_PTYPE_GRENAT4_MAC_PAY3			= 58,
+	I40E_RX_PTYPE_GRENAT4_MACVLAN_IPV6_ICMP_PAY4	= 87,
+	I40E_RX_PTYPE_GRENAT6_MAC_PAY3			= 124,
+	I40E_RX_PTYPE_GRENAT6_MACVLAN_IPV6_ICMP_PAY4	= 153
 };
 
 struct i40e_rx_ptype_decoded {
@@ -630,6 +908,9 @@ enum i40e_rx_ptype_payload_layer {
 	I40E_RX_PTYPE_PAYLOAD_LAYER_PAY4	= 3,
 };
 
+#define I40E_RX_PTYPE_BIT_MASK		0x0FFFFFFF
+#define I40E_RX_PTYPE_SHIFT		56
+
 #define I40E_RXD_QW1_LENGTH_PBUF_SHIFT	38
 #define I40E_RXD_QW1_LENGTH_PBUF_MASK	(0x3FFFULL << \
 					 I40E_RXD_QW1_LENGTH_PBUF_SHIFT)
@@ -639,8 +920,14 @@ enum i40e_rx_ptype_payload_layer {
 					 I40E_RXD_QW1_LENGTH_HBUF_SHIFT)
 
 #define I40E_RXD_QW1_LENGTH_SPH_SHIFT	63
-#define I40E_RXD_QW1_LENGTH_SPH_MASK	(0x1ULL << \
-					 I40E_RXD_QW1_LENGTH_SPH_SHIFT)
+#define I40E_RXD_QW1_LENGTH_SPH_MASK	BIT_ULL(I40E_RXD_QW1_LENGTH_SPH_SHIFT)
+
+#define I40E_RXD_QW1_NEXTP_SHIFT	38
+#define I40E_RXD_QW1_NEXTP_MASK		(0x1FFFULL << I40E_RXD_QW1_NEXTP_SHIFT)
+
+#define I40E_RXD_QW2_EXT_STATUS_SHIFT	0
+#define I40E_RXD_QW2_EXT_STATUS_MASK	(0xFFFFFUL << \
+					 I40E_RXD_QW2_EXT_STATUS_SHIFT)
 
 enum i40e_rx_desc_ext_status_bits {
 	/* Note: These are predefined bit offsets */
@@ -648,11 +935,16 @@ enum i40e_rx_desc_ext_status_bits {
 	I40E_RX_DESC_EXT_STATUS_L2TAG3P_SHIFT	= 1,
 	I40E_RX_DESC_EXT_STATUS_FLEXBL_SHIFT	= 2, /* 2 BITS */
 	I40E_RX_DESC_EXT_STATUS_FLEXBH_SHIFT	= 4, /* 2 BITS */
-	I40E_RX_DESC_EXT_STATUS_FTYPE_SHIFT	= 6, /* 3 BITS */
 	I40E_RX_DESC_EXT_STATUS_FDLONGB_SHIFT	= 9,
 	I40E_RX_DESC_EXT_STATUS_FCOELONGB_SHIFT	= 10,
 	I40E_RX_DESC_EXT_STATUS_PELONGB_SHIFT	= 11,
 };
+
+#define I40E_RXD_QW2_L2TAG2_SHIFT	0
+#define I40E_RXD_QW2_L2TAG2_MASK	(0xFFFFUL << I40E_RXD_QW2_L2TAG2_SHIFT)
+
+#define I40E_RXD_QW2_L2TAG3_SHIFT	16
+#define I40E_RXD_QW2_L2TAG3_MASK	(0xFFFFUL << I40E_RXD_QW2_L2TAG3_SHIFT)
 
 enum i40e_rx_desc_pe_status_bits {
 	/* Note: These are predefined bit offsets */
@@ -674,6 +966,10 @@ enum i40e_rx_desc_pe_status_bits {
 #define I40E_RX_PROG_STATUS_DESC_QW1_PROGID_MASK	(0x7UL << \
 				I40E_RX_PROG_STATUS_DESC_QW1_PROGID_SHIFT)
 
+#define I40E_RX_PROG_STATUS_DESC_QW1_STATUS_SHIFT	0
+#define I40E_RX_PROG_STATUS_DESC_QW1_STATUS_MASK	(0x7FFFUL << \
+				I40E_RX_PROG_STATUS_DESC_QW1_STATUS_SHIFT)
+
 #define I40E_RX_PROG_STATUS_DESC_QW1_ERROR_SHIFT	19
 #define I40E_RX_PROG_STATUS_DESC_QW1_ERROR_MASK		(0x3FUL << \
 				I40E_RX_PROG_STATUS_DESC_QW1_ERROR_SHIFT)
@@ -693,10 +989,15 @@ enum i40e_rx_prog_status_desc_prog_id_masks {
 enum i40e_rx_prog_status_desc_error_bits {
 	/* Note: These are predefined bit offsets */
 	I40E_RX_PROG_STATUS_DESC_FD_TBL_FULL_SHIFT	= 0,
-	I40E_RX_PROG_STATUS_DESC_NO_FD_QUOTA_SHIFT	= 1,
+	I40E_RX_PROG_STATUS_DESC_NO_FD_ENTRY_SHIFT	= 1,
 	I40E_RX_PROG_STATUS_DESC_FCOE_TBL_FULL_SHIFT	= 2,
 	I40E_RX_PROG_STATUS_DESC_FCOE_CONFLICT_SHIFT	= 3
 };
+
+#define I40E_TWO_BIT_MASK	0x3
+#define I40E_THREE_BIT_MASK	0x7
+#define I40E_FOUR_BIT_MASK	0xF
+#define I40E_EIGHTEEN_BIT_MASK	0x3FFFF
 
 /* TX Descriptor */
 struct i40e_tx_desc {
@@ -754,6 +1055,11 @@ enum i40e_tx_desc_length_fields {
 	I40E_TX_DESC_LENGTH_IPLEN_SHIFT		= 7, /* 7 BITS */
 	I40E_TX_DESC_LENGTH_L4_FC_LEN_SHIFT	= 14 /* 4 BITS */
 };
+
+#define I40E_TXD_QW1_MACLEN_MASK (0x7FUL << I40E_TX_DESC_LENGTH_MACLEN_SHIFT)
+#define I40E_TXD_QW1_IPLEN_MASK  (0x7FUL << I40E_TX_DESC_LENGTH_IPLEN_SHIFT)
+#define I40E_TXD_QW1_L4LEN_MASK  (0xFUL << I40E_TX_DESC_LENGTH_L4_FC_LEN_SHIFT)
+#define I40E_TXD_QW1_FCLEN_MASK  (0xFUL << I40E_TX_DESC_LENGTH_L4_FC_LEN_SHIFT)
 
 #define I40E_TXD_QW1_TX_BUF_SZ_SHIFT	34
 #define I40E_TXD_QW1_TX_BUF_SZ_MASK	(0x3FFFULL << \
@@ -817,12 +1123,11 @@ enum i40e_tx_ctx_desc_eipt_offload {
 #define I40E_TXD_CTX_QW0_NATT_SHIFT	9
 #define I40E_TXD_CTX_QW0_NATT_MASK	(0x3ULL << I40E_TXD_CTX_QW0_NATT_SHIFT)
 
-#define I40E_TXD_CTX_UDP_TUNNELING	(0x1ULL << I40E_TXD_CTX_QW0_NATT_SHIFT)
+#define I40E_TXD_CTX_UDP_TUNNELING	BIT_ULL(I40E_TXD_CTX_QW0_NATT_SHIFT)
 #define I40E_TXD_CTX_GRE_TUNNELING	(0x2ULL << I40E_TXD_CTX_QW0_NATT_SHIFT)
 
 #define I40E_TXD_CTX_QW0_EIP_NOINC_SHIFT	11
-#define I40E_TXD_CTX_QW0_EIP_NOINC_MASK	(0x1ULL << \
-					 I40E_TXD_CTX_QW0_EIP_NOINC_SHIFT)
+#define I40E_TXD_CTX_QW0_EIP_NOINC_MASK	BIT_ULL(I40E_TXD_CTX_QW0_EIP_NOINC_SHIFT)
 
 #define I40E_TXD_CTX_EIP_NOINC_IPID_CONST	I40E_TXD_CTX_QW0_EIP_NOINC_MASK
 
@@ -833,6 +1138,26 @@ enum i40e_tx_ctx_desc_eipt_offload {
 #define I40E_TXD_CTX_QW0_DECTTL_SHIFT	19
 #define I40E_TXD_CTX_QW0_DECTTL_MASK	(0xFULL << \
 					 I40E_TXD_CTX_QW0_DECTTL_SHIFT)
+
+#define I40E_TXD_CTX_QW0_L4T_CS_SHIFT	23
+#define I40E_TXD_CTX_QW0_L4T_CS_MASK	BIT_ULL(I40E_TXD_CTX_QW0_L4T_CS_SHIFT)
+struct i40e_nop_desc {
+	__le64 rsvd;
+	__le64 dtype_cmd;
+};
+
+#define I40E_TXD_NOP_QW1_DTYPE_SHIFT	0
+#define I40E_TXD_NOP_QW1_DTYPE_MASK	(0xFUL << I40E_TXD_NOP_QW1_DTYPE_SHIFT)
+
+#define I40E_TXD_NOP_QW1_CMD_SHIFT	4
+#define I40E_TXD_NOP_QW1_CMD_MASK	(0x7FUL << I40E_TXD_NOP_QW1_CMD_SHIFT)
+
+enum i40e_tx_nop_desc_cmd_bits {
+	/* Note: These are predefined bit offsets */
+	I40E_TX_NOP_DESC_EOP_SHIFT	= 0,
+	I40E_TX_NOP_DESC_RS_SHIFT	= 1,
+	I40E_TX_NOP_DESC_RSV_SHIFT	= 2 /* 5 bits */
+};
 
 struct i40e_filter_program_desc {
 	__le32 qindex_flex_ptype_vsi;
@@ -852,24 +1177,24 @@ struct i40e_filter_program_desc {
 
 /* Packet Classifier Types for filters */
 enum i40e_filter_pctype {
-	/* Note: Value 0-25 are reserved for future use */
-	I40E_FILTER_PCTYPE_IPV4_TEREDO_UDP		= 26,
-	I40E_FILTER_PCTYPE_IPV6_TEREDO_UDP		= 27,
-	I40E_FILTER_PCTYPE_NONF_IPV4_1588_UDP		= 28,
+	/* Note: Values 0-28 are reserved for future use.
+	 * Value 29, 30, 32 are not supported on XL710 and X710.
+	 */
 	I40E_FILTER_PCTYPE_NONF_UNICAST_IPV4_UDP	= 29,
 	I40E_FILTER_PCTYPE_NONF_MULTICAST_IPV4_UDP	= 30,
 	I40E_FILTER_PCTYPE_NONF_IPV4_UDP		= 31,
-	I40E_FILTER_PCTYPE_NONF_IPV4_TCP_SYN		= 32,
+	I40E_FILTER_PCTYPE_NONF_IPV4_TCP_SYN_NO_ACK	= 32,
 	I40E_FILTER_PCTYPE_NONF_IPV4_TCP		= 33,
 	I40E_FILTER_PCTYPE_NONF_IPV4_SCTP		= 34,
 	I40E_FILTER_PCTYPE_NONF_IPV4_OTHER		= 35,
 	I40E_FILTER_PCTYPE_FRAG_IPV4			= 36,
-	/* Note: Value 37 is reserved for future use */
-	I40E_FILTER_PCTYPE_NONF_IPV6_1588_UDP		= 38,
+	/* Note: Values 37-38 are reserved for future use.
+	 * Value 39, 40, 42 are not supported on XL710 and X710.
+	 */
 	I40E_FILTER_PCTYPE_NONF_UNICAST_IPV6_UDP	= 39,
 	I40E_FILTER_PCTYPE_NONF_MULTICAST_IPV6_UDP	= 40,
 	I40E_FILTER_PCTYPE_NONF_IPV6_UDP		= 41,
-	I40E_FILTER_PCTYPE_NONF_IPV6_TCP_SYN		= 42,
+	I40E_FILTER_PCTYPE_NONF_IPV6_TCP_SYN_NO_ACK	= 42,
 	I40E_FILTER_PCTYPE_NONF_IPV6_TCP		= 43,
 	I40E_FILTER_PCTYPE_NONF_IPV6_SCTP		= 44,
 	I40E_FILTER_PCTYPE_NONF_IPV6_OTHER		= 45,
@@ -877,7 +1202,8 @@ enum i40e_filter_pctype {
 	/* Note: Value 47 is reserved for future use */
 	I40E_FILTER_PCTYPE_FCOE_OX			= 48,
 	I40E_FILTER_PCTYPE_FCOE_RX			= 49,
-	/* Note: Value 50-62 are reserved for future use */
+	I40E_FILTER_PCTYPE_FCOE_OTHER			= 50,
+	/* Note: Values 51-62 are reserved for future use */
 	I40E_FILTER_PCTYPE_L2_PAYLOAD			= 63,
 };
 
@@ -898,6 +1224,9 @@ enum i40e_filter_program_desc_fd_status {
 #define I40E_TXD_FLTR_QW0_DEST_VSI_MASK	(0x1FFUL << \
 					 I40E_TXD_FLTR_QW0_DEST_VSI_SHIFT)
 
+#define I40E_TXD_FLTR_QW1_DTYPE_SHIFT	0
+#define I40E_TXD_FLTR_QW1_DTYPE_MASK	(0xFUL << I40E_TXD_FLTR_QW1_DTYPE_SHIFT)
+
 #define I40E_TXD_FLTR_QW1_CMD_SHIFT	4
 #define I40E_TXD_FLTR_QW1_CMD_MASK	(0xFFFFULL << \
 					 I40E_TXD_FLTR_QW1_CMD_SHIFT)
@@ -914,13 +1243,16 @@ enum i40e_filter_program_desc_pcmd {
 #define I40E_TXD_FLTR_QW1_DEST_MASK	(0x3ULL << I40E_TXD_FLTR_QW1_DEST_SHIFT)
 
 #define I40E_TXD_FLTR_QW1_CNT_ENA_SHIFT	(0x7ULL + I40E_TXD_FLTR_QW1_CMD_SHIFT)
-#define I40E_TXD_FLTR_QW1_CNT_ENA_MASK	(0x1ULL << \
-					 I40E_TXD_FLTR_QW1_CNT_ENA_SHIFT)
+#define I40E_TXD_FLTR_QW1_CNT_ENA_MASK	BIT_ULL(I40E_TXD_FLTR_QW1_CNT_ENA_SHIFT)
 
 #define I40E_TXD_FLTR_QW1_FD_STATUS_SHIFT	(0x9ULL + \
 						 I40E_TXD_FLTR_QW1_CMD_SHIFT)
 #define I40E_TXD_FLTR_QW1_FD_STATUS_MASK (0x3ULL << \
 					  I40E_TXD_FLTR_QW1_FD_STATUS_SHIFT)
+
+#define I40E_TXD_FLTR_QW1_ATR_SHIFT	(0xEULL + \
+					 I40E_TXD_FLTR_QW1_CMD_SHIFT)
+#define I40E_TXD_FLTR_QW1_ATR_MASK	BIT_ULL(I40E_TXD_FLTR_QW1_ATR_SHIFT)
 
 #define I40E_TXD_FLTR_QW1_CNTINDEX_SHIFT 20
 #define I40E_TXD_FLTR_QW1_CNTINDEX_MASK	(0x1FFUL << \
@@ -948,6 +1280,16 @@ struct i40e_vsi_context {
 	struct i40e_aqc_vsi_properties_data info;
 };
 
+struct i40e_veb_context {
+	u16 seid;
+	u16 uplink_seid;
+	u16 veb_number;
+	u16 vebs_allocated;
+	u16 vebs_unallocated;
+	u16 flags;
+	struct i40e_aqc_get_veb_parameters_completion info;
+};
+
 /* Statistics collected by each port, VSI, VEB, and S-channel */
 struct i40e_eth_stats {
 	u64 rx_bytes;			/* gorc */
@@ -955,8 +1297,6 @@ struct i40e_eth_stats {
 	u64 rx_multicast;		/* mprc */
 	u64 rx_broadcast;		/* bprc */
 	u64 rx_discards;		/* rdpc */
-	u64 rx_errors;			/* repc */
-	u64 rx_missed;			/* rmpc */
 	u64 rx_unknown_protocol;	/* rupp */
 	u64 tx_bytes;			/* gotc */
 	u64 tx_unicast;			/* uptc */
@@ -966,6 +1306,33 @@ struct i40e_eth_stats {
 	u64 tx_errors;			/* tepc */
 };
 
+/* Statistics collected per VEB per TC */
+struct i40e_veb_tc_stats {
+	u64 tc_rx_packets[I40E_MAX_TRAFFIC_CLASS];
+	u64 tc_rx_bytes[I40E_MAX_TRAFFIC_CLASS];
+	u64 tc_tx_packets[I40E_MAX_TRAFFIC_CLASS];
+	u64 tc_tx_bytes[I40E_MAX_TRAFFIC_CLASS];
+};
+
+#ifdef I40E_FCOE
+/* Statistics collected per function for FCoE */
+struct i40e_fcoe_stats {
+	u64 rx_fcoe_packets;		/* fcoeprc */
+	u64 rx_fcoe_dwords;		/* focedwrc */
+	u64 rx_fcoe_dropped;		/* fcoerpdc */
+	u64 tx_fcoe_packets;		/* fcoeptc */
+	u64 tx_fcoe_dwords;		/* focedwtc */
+	u64 fcoe_bad_fccrc;		/* fcoecrc */
+	u64 fcoe_last_error;		/* fcoelast */
+	u64 fcoe_ddp_count;		/* fcoeddpc */
+};
+
+/* offset to per function FCoE statistics block */
+#define I40E_FCOE_VF_STAT_OFFSET	0
+#define I40E_FCOE_PF_STAT_OFFSET	128
+#define I40E_FCOE_STAT_MAX		(I40E_FCOE_PF_STAT_OFFSET + I40E_MAX_PF)
+
+#endif
 /* Statistics collected by the MAC */
 struct i40e_hw_port_stats {
 	/* eth stats collected by the port */
@@ -1008,18 +1375,67 @@ struct i40e_hw_port_stats {
 	u64 tx_size_big;		/* ptc9522 */
 	u64 mac_short_packet_dropped;	/* mspdc */
 	u64 checksum_error;		/* xec */
+	/* flow director stats */
+	u64 fd_atr_match;
+	u64 fd_sb_match;
+	u64 fd_atr_tunnel_match;
+	u32 fd_atr_status;
+	u32 fd_sb_status;
+	/* EEE LPI */
+	u32 tx_lpi_status;
+	u32 rx_lpi_status;
+	u64 tx_lpi_count;		/* etlpic */
+	u64 rx_lpi_count;		/* erlpic */
 };
 
 /* Checksum and Shadow RAM pointers */
 #define I40E_SR_NVM_CONTROL_WORD		0x00
+#define I40E_SR_PCIE_ANALOG_CONFIG_PTR		0x03
+#define I40E_SR_PHY_ANALOG_CONFIG_PTR		0x04
+#define I40E_SR_OPTION_ROM_PTR			0x05
+#define I40E_SR_RO_PCIR_REGS_AUTO_LOAD_PTR	0x06
+#define I40E_SR_AUTO_GENERATED_POINTERS_PTR	0x07
+#define I40E_SR_PCIR_REGS_AUTO_LOAD_PTR		0x08
+#define I40E_SR_EMP_GLOBAL_MODULE_PTR		0x09
+#define I40E_SR_RO_PCIE_LCB_PTR			0x0A
+#define I40E_SR_EMP_IMAGE_PTR			0x0B
+#define I40E_SR_PE_IMAGE_PTR			0x0C
+#define I40E_SR_CSR_PROTECTED_LIST_PTR		0x0D
+#define I40E_SR_MNG_CONFIG_PTR			0x0E
 #define I40E_SR_EMP_MODULE_PTR			0x0F
-#define I40E_SR_NVM_IMAGE_VERSION		0x18
+#define I40E_SR_PBA_FLAGS			0x15
+#define I40E_SR_PBA_BLOCK_PTR			0x16
+#define I40E_SR_BOOT_CONFIG_PTR			0x17
+#define I40E_NVM_OEM_VER_OFF			0x83
+#define I40E_SR_NVM_DEV_STARTER_VERSION		0x18
+#define I40E_SR_NVM_WAKE_ON_LAN			0x19
 #define I40E_SR_ALTERNATE_SAN_MAC_ADDRESS_PTR	0x27
+#define I40E_SR_PERMANENT_SAN_MAC_ADDRESS_PTR	0x28
+#define I40E_SR_NVM_MAP_VERSION			0x29
+#define I40E_SR_NVM_IMAGE_VERSION		0x2A
+#define I40E_SR_NVM_STRUCTURE_VERSION		0x2B
 #define I40E_SR_NVM_EETRACK_LO			0x2D
 #define I40E_SR_NVM_EETRACK_HI			0x2E
 #define I40E_SR_VPD_PTR				0x2F
+#define I40E_SR_PXE_SETUP_PTR			0x30
+#define I40E_SR_PXE_CONFIG_CUST_OPTIONS_PTR	0x31
+#define I40E_SR_NVM_ORIGINAL_EETRACK_LO		0x34
+#define I40E_SR_NVM_ORIGINAL_EETRACK_HI		0x35
+#define I40E_SR_SW_ETHERNET_MAC_ADDRESS_PTR	0x37
+#define I40E_SR_POR_REGS_AUTO_LOAD_PTR		0x38
+#define I40E_SR_EMPR_REGS_AUTO_LOAD_PTR		0x3A
+#define I40E_SR_GLOBR_REGS_AUTO_LOAD_PTR	0x3B
+#define I40E_SR_CORER_REGS_AUTO_LOAD_PTR	0x3C
 #define I40E_SR_PCIE_ALT_AUTO_LOAD_PTR		0x3E
 #define I40E_SR_SW_CHECKSUM_WORD		0x3F
+#define I40E_SR_1ST_FREE_PROVISION_AREA_PTR	0x40
+#define I40E_SR_4TH_FREE_PROVISION_AREA_PTR	0x42
+#define I40E_SR_3RD_FREE_PROVISION_AREA_PTR	0x44
+#define I40E_SR_2ND_FREE_PROVISION_AREA_PTR	0x46
+#define I40E_SR_EMP_SR_SETTINGS_PTR		0x48
+#define I40E_SR_FEATURE_CONFIGURATION_PTR	0x49
+#define I40E_SR_CONFIGURATION_METADATA_PTR	0x4D
+#define I40E_SR_IMMEDIATE_VALUES_PTR		0x4E
 
 /* Auxiliary field, mask and shift definition for Shadow RAM and NVM Flash */
 #define I40E_SR_VPD_MODULE_MAX_SIZE		1024
@@ -1029,6 +1445,7 @@ struct i40e_hw_port_stats {
 
 /* Shadow RAM related */
 #define I40E_SR_SECTOR_SIZE_IN_WORDS	0x800
+#define I40E_SR_BUF_ALIGNMENT		4096
 #define I40E_SR_WORDS_IN_1KB		512
 /* Checksum should be calculated such that after adding all the words,
  * including the checksum word itself, the sum should be 0xBABA.
@@ -1037,6 +1454,210 @@ struct i40e_hw_port_stats {
 
 #define I40E_SRRD_SRCTL_ATTEMPTS	100000
 
+#ifdef I40E_FCOE
+/* FCoE Tx context descriptor - Use the i40e_tx_context_desc struct */
+
+enum i40E_fcoe_tx_ctx_desc_cmd_bits {
+	I40E_FCOE_TX_CTX_DESC_OPCODE_SINGLE_SEND	= 0x00, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_TSO_FC_CLASS2	= 0x01, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_TSO_FC_CLASS3	= 0x05, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_ETSO_FC_CLASS2	= 0x02, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_ETSO_FC_CLASS3	= 0x06, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_DWO_FC_CLASS2	= 0x03, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_DWO_FC_CLASS3	= 0x07, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_DDP_CTX_INVL	= 0x08, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_OPCODE_DWO_CTX_INVL	= 0x09, /* 4 BITS */
+	I40E_FCOE_TX_CTX_DESC_RELOFF			= 0x10,
+	I40E_FCOE_TX_CTX_DESC_CLRSEQ			= 0x20,
+	I40E_FCOE_TX_CTX_DESC_DIFENA			= 0x40,
+	I40E_FCOE_TX_CTX_DESC_IL2TAG2			= 0x80
+};
+
+/* FCoE DIF/DIX Context descriptor */
+struct i40e_fcoe_difdix_context_desc {
+	__le64 flags_buff0_buff1_ref;
+	__le64 difapp_msk_bias;
+};
+
+#define I40E_FCOE_DIFDIX_CTX_QW0_FLAGS_SHIFT	0
+#define I40E_FCOE_DIFDIX_CTX_QW0_FLAGS_MASK	(0xFFFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW0_FLAGS_SHIFT)
+
+enum i40e_fcoe_difdix_ctx_desc_flags_bits {
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_RSVD				= 0x0000,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_APPTYPE_TAGCHK		= 0x0000,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_APPTYPE_TAGNOTCHK		= 0x0004,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_GTYPE_OPAQUE			= 0x0000,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_GTYPE_CHKINTEGRITY		= 0x0008,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_GTYPE_CHKINTEGRITY_APPTAG	= 0x0010,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_GTYPE_CHKINTEGRITY_APPREFTAG	= 0x0018,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_REFTYPE_CNST			= 0x0000,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_REFTYPE_INC1BLK		= 0x0020,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_REFTYPE_APPTAG		= 0x0040,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_REFTYPE_RSVD			= 0x0060,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIXMODE_XSUM			= 0x0000,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIXMODE_CRC			= 0x0080,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFHOST_UNTAG			= 0x0000,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFHOST_BUF			= 0x0100,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFHOST_RSVD			= 0x0200,
+	/* 2 BITS */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFHOST_EMBDTAGS		= 0x0300,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFLAN_UNTAG			= 0x0000,
+	/* 1 BIT  */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFLAN_TAG			= 0x0400,
+	/* 1 BIT */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFBLK_512B			= 0x0000,
+	/* 1 BIT */
+	I40E_FCOE_DIFDIX_CTX_DESC_DIFBLK_4K			= 0x0800
+};
+
+#define I40E_FCOE_DIFDIX_CTX_QW0_BUFF0_SHIFT	12
+#define I40E_FCOE_DIFDIX_CTX_QW0_BUFF0_MASK	(0x3FFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW0_BUFF0_SHIFT)
+
+#define I40E_FCOE_DIFDIX_CTX_QW0_BUFF1_SHIFT	22
+#define I40E_FCOE_DIFDIX_CTX_QW0_BUFF1_MASK	(0x3FFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW0_BUFF1_SHIFT)
+
+#define I40E_FCOE_DIFDIX_CTX_QW0_REF_SHIFT	32
+#define I40E_FCOE_DIFDIX_CTX_QW0_REF_MASK	(0xFFFFFFFFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW0_REF_SHIFT)
+
+#define I40E_FCOE_DIFDIX_CTX_QW1_APP_SHIFT	0
+#define I40E_FCOE_DIFDIX_CTX_QW1_APP_MASK	(0xFFFFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW1_APP_SHIFT)
+
+#define I40E_FCOE_DIFDIX_CTX_QW1_APP_MSK_SHIFT	16
+#define I40E_FCOE_DIFDIX_CTX_QW1_APP_MSK_MASK	(0xFFFFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW1_APP_MSK_SHIFT)
+
+#define I40E_FCOE_DIFDIX_CTX_QW1_REF_BIAS_SHIFT	32
+#define I40E_FCOE_DIFDIX_CTX_QW0_REF_BIAS_MASK	(0xFFFFFFFFULL << \
+					I40E_FCOE_DIFDIX_CTX_QW1_REF_BIAS_SHIFT)
+
+/* FCoE DIF/DIX Buffers descriptor */
+struct i40e_fcoe_difdix_buffers_desc {
+	__le64 buff_addr0;
+	__le64 buff_addr1;
+};
+
+/* FCoE DDP Context descriptor */
+struct i40e_fcoe_ddp_context_desc {
+	__le64 rsvd;
+	__le64 type_cmd_foff_lsize;
+};
+
+#define I40E_FCOE_DDP_CTX_QW1_DTYPE_SHIFT	0
+#define I40E_FCOE_DDP_CTX_QW1_DTYPE_MASK	(0xFULL << \
+					I40E_FCOE_DDP_CTX_QW1_DTYPE_SHIFT)
+
+#define I40E_FCOE_DDP_CTX_QW1_CMD_SHIFT	4
+#define I40E_FCOE_DDP_CTX_QW1_CMD_MASK	(0xFULL << \
+					 I40E_FCOE_DDP_CTX_QW1_CMD_SHIFT)
+
+enum i40e_fcoe_ddp_ctx_desc_cmd_bits {
+	I40E_FCOE_DDP_CTX_DESC_BSIZE_512B	= 0x00, /* 2 BITS */
+	I40E_FCOE_DDP_CTX_DESC_BSIZE_4K		= 0x01, /* 2 BITS */
+	I40E_FCOE_DDP_CTX_DESC_BSIZE_8K		= 0x02, /* 2 BITS */
+	I40E_FCOE_DDP_CTX_DESC_BSIZE_16K	= 0x03, /* 2 BITS */
+	I40E_FCOE_DDP_CTX_DESC_DIFENA		= 0x04, /* 1 BIT  */
+	I40E_FCOE_DDP_CTX_DESC_LASTSEQH		= 0x08, /* 1 BIT  */
+};
+
+#define I40E_FCOE_DDP_CTX_QW1_FOFF_SHIFT	16
+#define I40E_FCOE_DDP_CTX_QW1_FOFF_MASK	(0x3FFFULL << \
+					 I40E_FCOE_DDP_CTX_QW1_FOFF_SHIFT)
+
+#define I40E_FCOE_DDP_CTX_QW1_LSIZE_SHIFT	32
+#define I40E_FCOE_DDP_CTX_QW1_LSIZE_MASK	(0x3FFFULL << \
+					I40E_FCOE_DDP_CTX_QW1_LSIZE_SHIFT)
+
+/* FCoE DDP/DWO Queue Context descriptor */
+struct i40e_fcoe_queue_context_desc {
+	__le64 dmaindx_fbase;           /* 0:11 DMAINDX, 12:63 FBASE */
+	__le64 flen_tph;                /* 0:12 FLEN, 13:15 TPH */
+};
+
+#define I40E_FCOE_QUEUE_CTX_QW0_DMAINDX_SHIFT	0
+#define I40E_FCOE_QUEUE_CTX_QW0_DMAINDX_MASK	(0xFFFULL << \
+					I40E_FCOE_QUEUE_CTX_QW0_DMAINDX_SHIFT)
+
+#define I40E_FCOE_QUEUE_CTX_QW0_FBASE_SHIFT	12
+#define I40E_FCOE_QUEUE_CTX_QW0_FBASE_MASK	(0xFFFFFFFFFFFFFULL << \
+					I40E_FCOE_QUEUE_CTX_QW0_FBASE_SHIFT)
+
+#define I40E_FCOE_QUEUE_CTX_QW1_FLEN_SHIFT	0
+#define I40E_FCOE_QUEUE_CTX_QW1_FLEN_MASK	(0x1FFFULL << \
+					I40E_FCOE_QUEUE_CTX_QW1_FLEN_SHIFT)
+
+#define I40E_FCOE_QUEUE_CTX_QW1_TPH_SHIFT	13
+#define I40E_FCOE_QUEUE_CTX_QW1_TPH_MASK	(0x7ULL << \
+					I40E_FCOE_QUEUE_CTX_QW1_FLEN_SHIFT)
+
+enum i40e_fcoe_queue_ctx_desc_tph_bits {
+	I40E_FCOE_QUEUE_CTX_DESC_TPHRDESC	= 0x1,
+	I40E_FCOE_QUEUE_CTX_DESC_TPHDATA	= 0x2
+};
+
+#define I40E_FCOE_QUEUE_CTX_QW1_RECIPE_SHIFT	30
+#define I40E_FCOE_QUEUE_CTX_QW1_RECIPE_MASK	(0x3ULL << \
+					I40E_FCOE_QUEUE_CTX_QW1_RECIPE_SHIFT)
+
+/* FCoE DDP/DWO Filter Context descriptor */
+struct i40e_fcoe_filter_context_desc {
+	__le32 param;
+	__le16 seqn;
+
+	/* 48:51(0:3) RSVD, 52:63(4:15) DMAINDX */
+	__le16 rsvd_dmaindx;
+
+	/* 0:7 FLAGS, 8:52 RSVD, 53:63 LANQ */
+	__le64 flags_rsvd_lanq;
+};
+
+#define I40E_FCOE_FILTER_CTX_QW0_DMAINDX_SHIFT	4
+#define I40E_FCOE_FILTER_CTX_QW0_DMAINDX_MASK	(0xFFF << \
+					I40E_FCOE_FILTER_CTX_QW0_DMAINDX_SHIFT)
+
+enum i40e_fcoe_filter_ctx_desc_flags_bits {
+	I40E_FCOE_FILTER_CTX_DESC_CTYP_DDP	= 0x00,
+	I40E_FCOE_FILTER_CTX_DESC_CTYP_DWO	= 0x01,
+	I40E_FCOE_FILTER_CTX_DESC_ENODE_INIT	= 0x00,
+	I40E_FCOE_FILTER_CTX_DESC_ENODE_RSP	= 0x02,
+	I40E_FCOE_FILTER_CTX_DESC_FC_CLASS2	= 0x00,
+	I40E_FCOE_FILTER_CTX_DESC_FC_CLASS3	= 0x04
+};
+
+#define I40E_FCOE_FILTER_CTX_QW1_FLAGS_SHIFT	0
+#define I40E_FCOE_FILTER_CTX_QW1_FLAGS_MASK	(0xFFULL << \
+					I40E_FCOE_FILTER_CTX_QW1_FLAGS_SHIFT)
+
+#define I40E_FCOE_FILTER_CTX_QW1_PCTYPE_SHIFT     8
+#define I40E_FCOE_FILTER_CTX_QW1_PCTYPE_MASK      (0x3FULL << \
+			I40E_FCOE_FILTER_CTX_QW1_PCTYPE_SHIFT)
+
+#define I40E_FCOE_FILTER_CTX_QW1_LANQINDX_SHIFT     53
+#define I40E_FCOE_FILTER_CTX_QW1_LANQINDX_MASK      (0x7FFULL << \
+			I40E_FCOE_FILTER_CTX_QW1_LANQINDX_SHIFT)
+
+#endif /* I40E_FCOE */
 enum i40e_switch_element_types {
 	I40E_SWITCH_ELEMENT_TYPE_MAC	= 1,
 	I40E_SWITCH_ELEMENT_TYPE_PF	= 2,
@@ -1140,7 +1761,7 @@ enum i40e_reset_type {
 };
 
 /* IEEE 802.1AB LLDP Agent Variables from NVM */
-#define I40E_NVM_LLDP_CFG_PTR		0xF
+#define I40E_NVM_LLDP_CFG_PTR		0xD
 struct i40e_lldp_variables {
 	u16 length;
 	u16 adminstatus;
@@ -1151,4 +1772,52 @@ struct i40e_lldp_variables {
 	u16 crc8;
 };
 
+/* Offsets into Alternate Ram */
+#define I40E_ALT_STRUCT_FIRST_PF_OFFSET		0   /* in dwords */
+#define I40E_ALT_STRUCT_DWORDS_PER_PF		64   /* in dwords */
+#define I40E_ALT_STRUCT_OUTER_VLAN_TAG_OFFSET	0xD  /* in dwords */
+#define I40E_ALT_STRUCT_USER_PRIORITY_OFFSET	0xC  /* in dwords */
+#define I40E_ALT_STRUCT_MIN_BW_OFFSET		0xE  /* in dwords */
+#define I40E_ALT_STRUCT_MAX_BW_OFFSET		0xF  /* in dwords */
+
+/* Alternate Ram Bandwidth Masks */
+#define I40E_ALT_BW_VALUE_MASK		0xFF
+#define I40E_ALT_BW_RELATIVE_MASK	0x40000000
+#define I40E_ALT_BW_VALID_MASK		0x80000000
+
+/* RSS Hash Table Size */
+#define I40E_PFQF_CTL_0_HASHLUTSIZE_512	0x00010000
+
+/* INPUT SET MASK for RSS, flow director, and flexible payload */
+#define I40E_L3_SRC_SHIFT		47
+#define I40E_L3_SRC_MASK		(0x3ULL << I40E_L3_SRC_SHIFT)
+#define I40E_L3_V6_SRC_SHIFT		43
+#define I40E_L3_V6_SRC_MASK		(0xFFULL << I40E_L3_V6_SRC_SHIFT)
+#define I40E_L3_DST_SHIFT		35
+#define I40E_L3_DST_MASK		(0x3ULL << I40E_L3_DST_SHIFT)
+#define I40E_L3_V6_DST_SHIFT		35
+#define I40E_L3_V6_DST_MASK		(0xFFULL << I40E_L3_V6_DST_SHIFT)
+#define I40E_L4_SRC_SHIFT		34
+#define I40E_L4_SRC_MASK		(0x1ULL << I40E_L4_SRC_SHIFT)
+#define I40E_L4_DST_SHIFT		33
+#define I40E_L4_DST_MASK		(0x1ULL << I40E_L4_DST_SHIFT)
+#define I40E_VERIFY_TAG_SHIFT		31
+#define I40E_VERIFY_TAG_MASK		(0x3ULL << I40E_VERIFY_TAG_SHIFT)
+
+#define I40E_FLEX_50_SHIFT		13
+#define I40E_FLEX_50_MASK		(0x1ULL << I40E_FLEX_50_SHIFT)
+#define I40E_FLEX_51_SHIFT		12
+#define I40E_FLEX_51_MASK		(0x1ULL << I40E_FLEX_51_SHIFT)
+#define I40E_FLEX_52_SHIFT		11
+#define I40E_FLEX_52_MASK		(0x1ULL << I40E_FLEX_52_SHIFT)
+#define I40E_FLEX_53_SHIFT		10
+#define I40E_FLEX_53_MASK		(0x1ULL << I40E_FLEX_53_SHIFT)
+#define I40E_FLEX_54_SHIFT		9
+#define I40E_FLEX_54_MASK		(0x1ULL << I40E_FLEX_54_SHIFT)
+#define I40E_FLEX_55_SHIFT		8
+#define I40E_FLEX_55_MASK		(0x1ULL << I40E_FLEX_55_SHIFT)
+#define I40E_FLEX_56_SHIFT		7
+#define I40E_FLEX_56_MASK		(0x1ULL << I40E_FLEX_56_SHIFT)
+#define I40E_FLEX_57_SHIFT		6
+#define I40E_FLEX_57_MASK		(0x1ULL << I40E_FLEX_57_SHIFT)
 #endif /* _I40E_TYPE_H_ */
