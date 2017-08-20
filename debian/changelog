@@ -1,3 +1,15 @@
+linux-3.13 (3.13.11-1+vyos1+helium12) unstable; urgency=low
+
+  [Philip Pettersson]
+  * packet: fix race condition in packet_set_ring
+
+  [Andrey Konovalov]
+  * dccp: fix freeing skb too early for IPV6_RECVPKTINFO
+
+  [Yuya Kusakabe]
+
+ -- Yuya Kusakabe <yuya.kusakabe@gmail.com>  Sun, 20 Aug 2017 23:40:42 +0900
+
 linux-3.13 (3.13.11-1+vyos1+helium11) unstable; urgency=low
 
   [ Eric Dumazet ]
