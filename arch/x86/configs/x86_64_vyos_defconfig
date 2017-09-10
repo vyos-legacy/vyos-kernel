@@ -1,3 +1,7 @@
+#
+# Automatically generated file; DO NOT EDIT.
+# Linux/x86 4.4.47 Kernel Configuration
+#
 CONFIG_64BIT=y
 CONFIG_X86_64=y
 CONFIG_X86=y
@@ -1804,7 +1808,7 @@ CONFIG_SCSI_DEBUG=m
 CONFIG_SCSI_PMCRAID=m
 CONFIG_SCSI_PM8001=m
 CONFIG_SCSI_BFA_FC=m
-# CONFIG_SCSI_VIRTIO is not set
+CONFIG_SCSI_VIRTIO=m
 # CONFIG_SCSI_CHELSIO_FCOE is not set
 # CONFIG_SCSI_DH is not set
 # CONFIG_SCSI_OSD_INITIATOR is not set
