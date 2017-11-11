@@ -1,3 +1,10 @@
+linux-3.13 (3.13.11-1+vyos1+helium14) unstable; urgency=low
+
+  * Enable the virtio SCSI driver
+  * Enable virtualization features that are possible to enable without PAE in the 32-bit build
+
+ -- Daniil Baturin <daniil@baturin.org>  Sat, 11 Nov 2017 11:23:16 +0100
+
 linux-3.13 (3.13.11-1+vyos1+helium13) unstable; urgency=low
 
   [ Linus Torvalds ]
