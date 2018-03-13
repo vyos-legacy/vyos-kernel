@@ -134,7 +134,7 @@ struct pv_cpu_ops {
 	void (*alloc_ldt)(struct desc_struct *ldt, unsigned entries);
 	void (*free_ldt)(struct desc_struct *ldt, unsigned entries);
 
-	void (*load_sp0)(struct tss_struct *tss, struct thread_struct *t);
+	void (*load_sp0)(unsigned long sp0);
 
 	void (*set_iopl_mask)(unsigned mask);
 
@@ -217,7 +217,7 @@ struct pv_mmu_ops {
 	/* TLB operations */
 	void (*flush_tlb_user)(void);
 	void (*flush_tlb_kernel)(void);
-	void (*flush_tlb_single)(unsigned long addr);
+	void (*flush_tlb_one_user)(unsigned long addr);
 	void (*flush_tlb_others)(const struct cpumask *cpus,
 				 const struct flush_tlb_info *info);
 

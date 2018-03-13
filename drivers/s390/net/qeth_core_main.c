@@ -19,6 +19,11 @@
 #include <linux/mii.h>
 #include <linux/kthread.h>
 #include <linux/slab.h>
+#include <linux/if_vlan.h>
+#include <linux/netdevice.h>
+#include <linux/netdev_features.h>
+#include <linux/skbuff.h>
+
 #include <net/iucv/af_iucv.h>
 #include <net/dsfield.h>
 
@@ -1474,9 +1479,9 @@ static int qeth_setup_card(struct qeth_card *card)
 	qeth_set_intial_options(card);
 	/* IP address takeover */
 	INIT_LIST_HEAD(&card->ipato.entries);
-	card->ipato.enabled = 0;
-	card->ipato.invert4 = 0;
-	card->ipato.invert6 = 0;
+	card->ipato.enabled = false;
+	card->ipato.invert4 = false;
+	card->ipato.invert6 = false;
 	/* init QDIO stuff */
 	qeth_init_qdio_info(card);
 	INIT_DELAYED_WORK(&card->buffer_reclaim_work, qeth_buffer_reclaim_work);
@@ -2068,7 +2073,7 @@ int qeth_send_control_data(struct qeth_card *card, int len,
 	unsigned long flags;
 	struct qeth_reply *reply = NULL;
 	unsigned long timeout, event_timeout;
-	struct qeth_ipa_cmd *cmd;
+	struct qeth_ipa_cmd *cmd = NULL;
 
 	QETH_CARD_TEXT(card, 2, "sendctl");
 
@@ -2082,23 +2087,27 @@ int qeth_send_control_data(struct qeth_card *card, int len,
 	}
 	reply->callback = reply_cb;
 	reply->param = reply_param;
-	if (card->state == CARD_STATE_DOWN)
-		reply->seqno = QETH_IDX_COMMAND_SEQNO;
-	else
-		reply->seqno = card->seqno.ipa++;
+
 	init_waitqueue_head(&reply->wait_q);
-	spin_lock_irqsave(&card->lock, flags);
-	list_add_tail(&reply->list, &card->cmd_waiter_list);
-	spin_unlock_irqrestore(&card->lock, flags);
 	QETH_DBF_HEX(CTRL, 2, iob->data, QETH_DBF_CTRL_LEN);
 
 	while (atomic_cmpxchg(&card->write.irq_pending, 0, 1)) ;
+
+	if (IS_IPA(iob->data)) {
+		cmd = __ipa_cmd(iob);
+		cmd->hdr.seqno = card->seqno.ipa++;
+		reply->seqno = cmd->hdr.seqno;
+		event_timeout = QETH_IPA_TIMEOUT;
+	} else {
+		reply->seqno = QETH_IDX_COMMAND_SEQNO;
+		event_timeout = QETH_TIMEOUT;
+	}
 	qeth_prepare_control_data(card, len, iob);
 
-	if (IS_IPA(iob->data))
-		event_timeout = QETH_IPA_TIMEOUT;
-	else
-		event_timeout = QETH_TIMEOUT;
+	spin_lock_irqsave(&card->lock, flags);
+	list_add_tail(&reply->list, &card->cmd_waiter_list);
+	spin_unlock_irqrestore(&card->lock, flags);
+
 	timeout = jiffies + event_timeout;
 
 	QETH_CARD_TEXT(card, 6, "noirqpnd");
@@ -2123,9 +2132,8 @@ int qeth_send_control_data(struct qeth_card *card, int len,
 
 	/* we have only one long running ipassist, since we can ensure
 	   process context of this command we can sleep */
-	cmd = (struct qeth_ipa_cmd *)(iob->data+IPA_PDU_HEADER_SIZE);
-	if ((cmd->hdr.command == IPA_CMD_SETIP) &&
-	    (cmd->hdr.prot_version == QETH_PROT_IPV4)) {
+	if (cmd && cmd->hdr.command == IPA_CMD_SETIP &&
+	    cmd->hdr.prot_version == QETH_PROT_IPV4) {
 		if (!wait_event_timeout(reply->wait_q,
 		    atomic_read(&reply->received), event_timeout))
 			goto time_err;
@@ -2889,7 +2897,7 @@ static void qeth_fill_ipacmd_header(struct qeth_card *card,
 	memset(cmd, 0, sizeof(struct qeth_ipa_cmd));
 	cmd->hdr.command = command;
 	cmd->hdr.initiator = IPA_CMD_INITIATOR_HOST;
-	cmd->hdr.seqno = card->seqno.ipa;
+	/* cmd->hdr.seqno is set by qeth_send_control_data() */
 	cmd->hdr.adapter_type = qeth_get_ipa_adp_type(card->info.link_type);
 	cmd->hdr.rel_adapter_no = (__u8) card->info.portno;
 	if (card->options.layer2)
@@ -3854,10 +3862,12 @@ EXPORT_SYMBOL_GPL(qeth_get_elements_for_frags);
 int qeth_get_elements_no(struct qeth_card *card,
 		     struct sk_buff *skb, int extra_elems, int data_offset)
 {
-	int elements = qeth_get_elements_for_range(
-				(addr_t)skb->data + data_offset,
-				(addr_t)skb->data + skb_headlen(skb)) +
-			qeth_get_elements_for_frags(skb);
+	addr_t end = (addr_t)skb->data + skb_headlen(skb);
+	int elements = qeth_get_elements_for_frags(skb);
+	addr_t start = (addr_t)skb->data + data_offset;
+
+	if (start != end)
+		elements += qeth_get_elements_for_range(start, end);
 
 	if ((elements + extra_elems) > QETH_MAX_BUFFER_ELEMENTS(card)) {
 		QETH_DBF_MESSAGE(2, "Invalid size of IP packet "
@@ -5440,6 +5450,13 @@ out:
 }
 EXPORT_SYMBOL_GPL(qeth_poll);
 
+static int qeth_setassparms_inspect_rc(struct qeth_ipa_cmd *cmd)
+{
+	if (!cmd->hdr.return_code)
+		cmd->hdr.return_code = cmd->data.setassparms.hdr.return_code;
+	return cmd->hdr.return_code;
+}
+
 int qeth_setassparms_cb(struct qeth_card *card,
 			struct qeth_reply *reply, unsigned long data)
 {
@@ -6299,7 +6316,7 @@ static int qeth_ipa_checksum_run_cmd_cb(struct qeth_card *card,
 				(struct qeth_checksum_cmd *)reply->param;
 
 	QETH_CARD_TEXT(card, 4, "chkdoccb");
-	if (cmd->hdr.return_code)
+	if (qeth_setassparms_inspect_rc(cmd))
 		return 0;
 
 	memset(chksum_cb, 0, sizeof(*chksum_cb));
@@ -6504,6 +6521,32 @@ netdev_features_t qeth_fix_features(struct net_device *dev,
 	return features;
 }
 EXPORT_SYMBOL_GPL(qeth_fix_features);
+
+netdev_features_t qeth_features_check(struct sk_buff *skb,
+				      struct net_device *dev,
+				      netdev_features_t features)
+{
+	/* GSO segmentation builds skbs with
+	 *	a (small) linear part for the headers, and
+	 *	page frags for the data.
+	 * Compared to a linear skb, the header-only part consumes an
+	 * additional buffer element. This reduces buffer utilization, and
+	 * hurts throughput. So compress small segments into one element.
+	 */
+	if (netif_needs_gso(skb, features)) {
+		/* match skb_segment(): */
+		unsigned int doffset = skb->data - skb_mac_header(skb);
+		unsigned int hsize = skb_shinfo(skb)->gso_size;
+		unsigned int hroom = skb_headroom(skb);
+
+		/* linearize only if resulting skb allocations are order-0: */
+		if (SKB_DATA_ALIGN(hroom + doffset + hsize) <= SKB_MAX_HEAD(0))
+			features &= ~NETIF_F_SG;
+	}
+
+	return vlan_features_check(skb, features);
+}
+EXPORT_SYMBOL_GPL(qeth_features_check);
 
 static int __init qeth_core_init(void)
 {
