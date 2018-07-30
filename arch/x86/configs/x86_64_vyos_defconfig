@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 4.14.26-amd64-vyos Kernel Configuration
+# Linux/x86 4.14.26-amd64-vyos Kernel Configuration
 #
 CONFIG_64BIT=y
 CONFIG_X86_64=y
@@ -949,7 +949,7 @@ CONFIG_IPV6_ROUTE_INFO=y
 CONFIG_IPV6_OPTIMISTIC_DAD=y
 CONFIG_INET6_AH=m
 CONFIG_INET6_ESP=m
-# CONFIG_INET6_ESP_OFFLOAD is not set
+CONFIG_INET6_ESP_OFFLOAD=m
 CONFIG_INET6_IPCOMP=m
 CONFIG_IPV6_MIP6=m
 CONFIG_IPV6_ILA=m
