@@ -366,7 +366,7 @@ int xhci_find_slot_id_by_port(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 
 	slot_id = 0;
 	for (i = 0; i < MAX_HC_SLOTS; i++) {
-		if (!xhci->devs[i])
+		if (!xhci->devs[i] || !xhci->devs[i]->udev)
 			continue;
 		speed = xhci->devs[i]->udev->speed;
 		if (((speed >= USB_SPEED_SUPER) == (hcd->speed >= HCD_USB3))
@@ -634,7 +634,10 @@ static int xhci_enter_test_mode(struct xhci_hcd *xhci,
 	xhci_dbg(xhci, "Disable all slots\n");
 	spin_unlock_irqrestore(&xhci->lock, *flags);
 	for (i = 1; i <= HCS_MAX_SLOTS(xhci->hcs_params1); i++) {
-		retval = xhci_disable_slot(xhci, NULL, i);
+		if (!xhci->devs[i])
+			continue;
+
+		retval = xhci_disable_slot(xhci, i);
 		if (retval)
 			xhci_err(xhci, "Failed to disable slot %d, %d. Enter test mode anyway\n",
 				 i, retval);
@@ -1527,6 +1530,13 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 			} else {
 				t2 |= PORT_WKOC_E | PORT_WKCONN_E;
 				t2 &= ~PORT_WKDISC_E;
+			}
+
+			if ((xhci->quirks & XHCI_U2_DISABLE_WAKE) &&
+			    (hcd->speed < HCD_USB3)) {
+				if (usb_amd_pt_check_port(hcd->self.controller,
+							  port_index))
+					t2 &= ~PORT_WAKE_BITS;
 			}
 		} else
 			t2 &= ~PORT_WAKE_BITS;

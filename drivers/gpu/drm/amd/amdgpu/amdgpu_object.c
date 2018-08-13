@@ -46,6 +46,8 @@ static void amdgpu_ttm_bo_destroy(struct ttm_buffer_object *tbo)
 
 	amdgpu_bo_kunmap(bo);
 
+	if (bo->gem_base.import_attach)
+		drm_prime_gem_destroy(&bo->gem_base, bo->tbo.sg);
 	drm_gem_object_release(&bo->gem_base);
 	amdgpu_bo_unref(&bo->parent);
 	if (!list_empty(&bo->shadow_list)) {
@@ -681,8 +683,12 @@ int amdgpu_bo_pin_restricted(struct amdgpu_bo *bo, u32 domain,
 		return -EINVAL;
 
 	/* A shared bo cannot be migrated to VRAM */
-	if (bo->prime_shared_count && (domain == AMDGPU_GEM_DOMAIN_VRAM))
-		return -EINVAL;
+	if (bo->prime_shared_count) {
+		if (domain & AMDGPU_GEM_DOMAIN_GTT)
+			domain = AMDGPU_GEM_DOMAIN_GTT;
+		else
+			return -EINVAL;
+	}
 
 	if (bo->pin_count) {
 		uint32_t mem_type = bo->tbo.mem.mem_type;
@@ -745,8 +751,7 @@ int amdgpu_bo_pin_restricted(struct amdgpu_bo *bo, u32 domain,
 	}
 	if (domain == AMDGPU_GEM_DOMAIN_VRAM) {
 		adev->vram_pin_size += amdgpu_bo_size(bo);
-		if (bo->flags & AMDGPU_GEM_CREATE_NO_CPU_ACCESS)
-			adev->invisible_pin_size += amdgpu_bo_size(bo);
+		adev->invisible_pin_size += amdgpu_vram_mgr_bo_invisible_size(bo);
 	} else if (domain == AMDGPU_GEM_DOMAIN_GTT) {
 		adev->gart_pin_size += amdgpu_bo_size(bo);
 	}
@@ -784,8 +789,7 @@ int amdgpu_bo_unpin(struct amdgpu_bo *bo)
 
 	if (bo->tbo.mem.mem_type == TTM_PL_VRAM) {
 		adev->vram_pin_size -= amdgpu_bo_size(bo);
-		if (bo->flags & AMDGPU_GEM_CREATE_NO_CPU_ACCESS)
-			adev->invisible_pin_size -= amdgpu_bo_size(bo);
+		adev->invisible_pin_size -= amdgpu_vram_mgr_bo_invisible_size(bo);
 	} else if (bo->tbo.mem.mem_type == TTM_PL_TT) {
 		adev->gart_pin_size -= amdgpu_bo_size(bo);
 	}

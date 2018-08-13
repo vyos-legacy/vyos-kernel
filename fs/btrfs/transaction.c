@@ -319,7 +319,7 @@ static int record_root_in_trans(struct btrfs_trans_handle *trans,
 	if ((test_bit(BTRFS_ROOT_REF_COWS, &root->state) &&
 	    root->last_trans < trans->transid) || force) {
 		WARN_ON(root == fs_info->extent_root);
-		WARN_ON(root->commit_root != root->node);
+		WARN_ON(!force && root->commit_root != root->node);
 
 		/*
 		 * see below for IN_TRANS_SETUP usage rules
@@ -1366,6 +1366,14 @@ static int qgroup_account_snapshot(struct btrfs_trans_handle *trans,
 		return 0;
 
 	/*
+	 * Ensure dirty @src will be commited.  Or, after comming
+	 * commit_fs_roots() and switch_commit_roots(), any dirty but not
+	 * recorded root will never be updated again, causing an outdated root
+	 * item.
+	 */
+	record_root_in_trans(trans, src, 1);
+
+	/*
 	 * We are going to commit transaction, see btrfs_commit_transaction()
 	 * comment for reason locking tree_log_mutex
 	 */
@@ -1722,23 +1730,19 @@ static void update_super_roots(struct btrfs_fs_info *fs_info)
 
 	super = fs_info->super_copy;
 
-	/* update latest btrfs_super_block::chunk_root refs */
 	root_item = &fs_info->chunk_root->root_item;
-	btrfs_set_super_chunk_root(super, root_item->bytenr);
-	btrfs_set_super_chunk_root_generation(super, root_item->generation);
-	btrfs_set_super_chunk_root_level(super, root_item->level);
+	super->chunk_root = root_item->bytenr;
+	super->chunk_root_generation = root_item->generation;
+	super->chunk_root_level = root_item->level;
 
-	/* update latest btrfs_super_block::root refs */
 	root_item = &fs_info->tree_root->root_item;
-	btrfs_set_super_root(super, root_item->bytenr);
-	btrfs_set_super_generation(super, root_item->generation);
-	btrfs_set_super_root_level(super, root_item->level);
-
+	super->root = root_item->bytenr;
+	super->generation = root_item->generation;
+	super->root_level = root_item->level;
 	if (btrfs_test_opt(fs_info, SPACE_CACHE))
-		btrfs_set_super_cache_generation(super, root_item->generation);
+		super->cache_generation = root_item->generation;
 	if (test_bit(BTRFS_FS_UPDATE_UUID_TREE_GEN, &fs_info->flags))
-		btrfs_set_super_uuid_tree_generation(super,
-						     root_item->generation);
+		super->uuid_tree_generation = root_item->generation;
 }
 
 int btrfs_transaction_in_commit(struct btrfs_fs_info *info)

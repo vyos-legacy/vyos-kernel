@@ -63,6 +63,7 @@
 #include <linux/hash.h>
 #include <linux/genetlink.h>
 #include <linux/net_namespace.h>
+#include <linux/nospec.h>
 
 #include <net/net_namespace.h>
 #include <net/sock.h>
@@ -647,6 +648,7 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 
 	if (protocol < 0 || protocol >= MAX_LINKS)
 		return -EPROTONOSUPPORT;
+	protocol = array_index_nospec(protocol, MAX_LINKS);
 
 	netlink_lock_table();
 #ifdef CONFIG_MODULES
@@ -977,6 +979,11 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 			return err;
 	}
 
+	if (nlk->ngroups == 0)
+		groups = 0;
+	else if (nlk->ngroups < 8*sizeof(groups))
+		groups &= (1UL << nlk->ngroups) - 1;
+
 	bound = nlk->bound;
 	if (bound) {
 		/* Ensure nlk->portid is up-to-date. */
@@ -1051,6 +1058,9 @@ static int netlink_connect(struct socket *sock, struct sockaddr *addr,
 		return 0;
 	}
 	if (addr->sa_family != AF_NETLINK)
+		return -EINVAL;
+
+	if (alen < sizeof(struct sockaddr_nl))
 		return -EINVAL;
 
 	if ((nladdr->nl_groups || nladdr->nl_pid) &&
@@ -1810,6 +1820,8 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 
 	if (msg->msg_namelen) {
 		err = -EINVAL;
+		if (msg->msg_namelen < sizeof(struct sockaddr_nl))
+			goto out;
 		if (addr->nl_family != AF_NETLINK)
 			goto out;
 		dst_portid = addr->nl_pid;

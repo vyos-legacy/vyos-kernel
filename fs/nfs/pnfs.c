@@ -292,8 +292,11 @@ pnfs_detach_layout_hdr(struct pnfs_layout_hdr *lo)
 void
 pnfs_put_layout_hdr(struct pnfs_layout_hdr *lo)
 {
-	struct inode *inode = lo->plh_inode;
+	struct inode *inode;
 
+	if (!lo)
+		return;
+	inode = lo->plh_inode;
 	pnfs_layoutreturn_before_put_layout_hdr(lo);
 
 	if (atomic_dec_and_lock(&lo->plh_refcount, &inode->i_lock)) {
@@ -1123,7 +1126,7 @@ _pnfs_return_layout(struct inode *ino)
 	LIST_HEAD(tmp_list);
 	nfs4_stateid stateid;
 	int status = 0;
-	bool send;
+	bool send, valid_layout;
 
 	dprintk("NFS: %s for inode %lu\n", __func__, ino->i_ino);
 
@@ -1144,6 +1147,7 @@ _pnfs_return_layout(struct inode *ino)
 			goto out_put_layout_hdr;
 		spin_lock(&ino->i_lock);
 	}
+	valid_layout = pnfs_layout_is_valid(lo);
 	pnfs_clear_layoutcommit(ino, &tmp_list);
 	pnfs_mark_matching_lsegs_invalid(lo, &tmp_list, NULL, 0);
 
@@ -1157,7 +1161,8 @@ _pnfs_return_layout(struct inode *ino)
 	}
 
 	/* Don't send a LAYOUTRETURN if list was initially empty */
-	if (!test_bit(NFS_LAYOUT_RETURN_REQUESTED, &lo->plh_flags)) {
+	if (!test_bit(NFS_LAYOUT_RETURN_REQUESTED, &lo->plh_flags) ||
+			!valid_layout) {
 		spin_unlock(&ino->i_lock);
 		dprintk("NFS: %s no layout segments to return\n", __func__);
 		goto out_put_layout_hdr;
@@ -1223,10 +1228,12 @@ retry:
 	spin_lock(&ino->i_lock);
 	lo = nfsi->layout;
 	if (!lo || !pnfs_layout_is_valid(lo) ||
-	    test_bit(NFS_LAYOUT_BULK_RECALL, &lo->plh_flags))
+	    test_bit(NFS_LAYOUT_BULK_RECALL, &lo->plh_flags)) {
+		lo = NULL;
 		goto out_noroc;
+	}
+	pnfs_get_layout_hdr(lo);
 	if (test_bit(NFS_LAYOUT_RETURN_LOCK, &lo->plh_flags)) {
-		pnfs_get_layout_hdr(lo);
 		spin_unlock(&ino->i_lock);
 		wait_on_bit(&lo->plh_flags, NFS_LAYOUT_RETURN,
 				TASK_UNINTERRUPTIBLE);
@@ -1294,10 +1301,12 @@ out_noroc:
 		struct pnfs_layoutdriver_type *ld = NFS_SERVER(ino)->pnfs_curr_ld;
 		if (ld->prepare_layoutreturn)
 			ld->prepare_layoutreturn(args);
+		pnfs_put_layout_hdr(lo);
 		return true;
 	}
 	if (layoutreturn)
 		pnfs_send_layoutreturn(lo, &stateid, iomode, true);
+	pnfs_put_layout_hdr(lo);
 	return false;
 }
 

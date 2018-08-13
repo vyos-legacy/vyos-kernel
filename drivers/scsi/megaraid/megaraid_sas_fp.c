@@ -168,7 +168,7 @@ static struct MR_LD_SPAN *MR_LdSpanPtrGet(u32 ld, u32 span,
 /*
  * This function will Populate Driver Map using firmware raid map
  */
-void MR_PopulateDrvRaidMap(struct megasas_instance *instance)
+static int MR_PopulateDrvRaidMap(struct megasas_instance *instance)
 {
 	struct fusion_context *fusion = instance->ctrl_context;
 	struct MR_FW_RAID_MAP_ALL     *fw_map_old    = NULL;
@@ -259,7 +259,7 @@ void MR_PopulateDrvRaidMap(struct megasas_instance *instance)
 		ld_count = (u16)le16_to_cpu(fw_map_ext->ldCount);
 		if (ld_count > MAX_LOGICAL_DRIVES_EXT) {
 			dev_dbg(&instance->pdev->dev, "megaraid_sas: LD count exposed in RAID map in not valid\n");
-			return;
+			return 1;
 		}
 
 		pDrvRaidMap->ldCount = (__le16)cpu_to_le16(ld_count);
@@ -285,6 +285,12 @@ void MR_PopulateDrvRaidMap(struct megasas_instance *instance)
 			fusion->ld_map[(instance->map_id & 1)];
 		pFwRaidMap = &fw_map_old->raidMap;
 		ld_count = (u16)le32_to_cpu(pFwRaidMap->ldCount);
+		if (ld_count > MAX_LOGICAL_DRIVES) {
+			dev_dbg(&instance->pdev->dev,
+				"LD count exposed in RAID map in not valid\n");
+			return 1;
+		}
+
 		pDrvRaidMap->totalSize = pFwRaidMap->totalSize;
 		pDrvRaidMap->ldCount = (__le16)cpu_to_le16(ld_count);
 		pDrvRaidMap->fpPdIoTimeoutSec = pFwRaidMap->fpPdIoTimeoutSec;
@@ -300,6 +306,8 @@ void MR_PopulateDrvRaidMap(struct megasas_instance *instance)
 			sizeof(struct MR_DEV_HANDLE_INFO) *
 			MAX_RAIDMAP_PHYSICAL_DEVICES);
 	}
+
+	return 0;
 }
 
 /*
@@ -317,8 +325,8 @@ u8 MR_ValidateMapInfo(struct megasas_instance *instance)
 	u16 ld;
 	u32 expected_size;
 
-
-	MR_PopulateDrvRaidMap(instance);
+	if (MR_PopulateDrvRaidMap(instance))
+		return 0;
 
 	fusion = instance->ctrl_context;
 	drv_map = fusion->ld_drv_map[(instance->map_id & 1)];
@@ -737,7 +745,7 @@ static u8 mr_spanset_get_phy_params(struct megasas_instance *instance, u32 ld,
 		*pDevHandle = MR_PdDevHandleGet(pd, map);
 		*pPdInterface = MR_PdInterfaceTypeGet(pd, map);
 		/* get second pd also for raid 1/10 fast path writes*/
-		if (instance->is_ventura &&
+		if ((instance->adapter_type == VENTURA_SERIES) &&
 		    (raid->level == 1) &&
 		    !io_info->isRead) {
 			r1_alt_pd = MR_ArPdGet(arRef, physArm + 1, map);
@@ -747,8 +755,8 @@ static u8 mr_spanset_get_phy_params(struct megasas_instance *instance, u32 ld,
 		}
 	} else {
 		if ((raid->level >= 5) &&
-			((fusion->adapter_type == THUNDERBOLT_SERIES)  ||
-			((fusion->adapter_type == INVADER_SERIES) &&
+			((instance->adapter_type == THUNDERBOLT_SERIES)  ||
+			((instance->adapter_type == INVADER_SERIES) &&
 			(raid->regTypeReqOnRead != REGION_TYPE_UNUSED))))
 			pRAID_Context->reg_lock_flags = REGION_TYPE_EXCLUSIVE;
 		else if (raid->level == 1) {
@@ -762,7 +770,7 @@ static u8 mr_spanset_get_phy_params(struct megasas_instance *instance, u32 ld,
 	}
 
 	*pdBlock += stripRef + le64_to_cpu(MR_LdSpanPtrGet(ld, span, map)->startBlk);
-	if (instance->is_ventura) {
+	if (instance->adapter_type == VENTURA_SERIES) {
 		((struct RAID_CONTEXT_G35 *)pRAID_Context)->span_arm =
 			(span << RAID_CTX_SPANARM_SPAN_SHIFT) | physArm;
 		io_info->span_arm =
@@ -853,7 +861,7 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 		*pDevHandle = MR_PdDevHandleGet(pd, map);
 		*pPdInterface = MR_PdInterfaceTypeGet(pd, map);
 		/* get second pd also for raid 1/10 fast path writes*/
-		if (instance->is_ventura &&
+		if ((instance->adapter_type == VENTURA_SERIES) &&
 		    (raid->level == 1) &&
 		    !io_info->isRead) {
 			r1_alt_pd = MR_ArPdGet(arRef, physArm + 1, map);
@@ -863,8 +871,8 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 		}
 	} else {
 		if ((raid->level >= 5) &&
-			((fusion->adapter_type == THUNDERBOLT_SERIES)  ||
-			((fusion->adapter_type == INVADER_SERIES) &&
+			((instance->adapter_type == THUNDERBOLT_SERIES)  ||
+			((instance->adapter_type == INVADER_SERIES) &&
 			(raid->regTypeReqOnRead != REGION_TYPE_UNUSED))))
 			pRAID_Context->reg_lock_flags = REGION_TYPE_EXCLUSIVE;
 		else if (raid->level == 1) {
@@ -880,7 +888,7 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 	}
 
 	*pdBlock += stripRef + le64_to_cpu(MR_LdSpanPtrGet(ld, span, map)->startBlk);
-	if (instance->is_ventura) {
+	if (instance->adapter_type == VENTURA_SERIES) {
 		((struct RAID_CONTEXT_G35 *)pRAID_Context)->span_arm =
 				(span << RAID_CTX_SPANARM_SPAN_SHIFT) | physArm;
 		io_info->span_arm =
@@ -1088,10 +1096,10 @@ MR_BuildRaidContext(struct megasas_instance *instance,
 		cpu_to_le16(raid->fpIoTimeoutForLd ?
 			    raid->fpIoTimeoutForLd :
 			    map->raidMap.fpPdIoTimeoutSec);
-	if (fusion->adapter_type == INVADER_SERIES)
+	if (instance->adapter_type == INVADER_SERIES)
 		pRAID_Context->reg_lock_flags = (isRead) ?
 			raid->regTypeReqOnRead : raid->regTypeReqOnWrite;
-	else if (!instance->is_ventura)
+	else if (instance->adapter_type == THUNDERBOLT_SERIES)
 		pRAID_Context->reg_lock_flags = (isRead) ?
 			REGION_TYPE_SHARED_READ : raid->regTypeReqOnWrite;
 	pRAID_Context->virtual_disk_tgt_id = raid->targetId;
