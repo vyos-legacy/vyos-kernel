@@ -1,10 +1,10 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 4.18.8 Kernel Configuration
+# Linux/x86 4.18.11 Kernel Configuration
 #
 
 #
-# Compiler: gcc-4.9.real (Debian 4.9.2-10+deb8u1) 4.9.2
+# Compiler: gcc (Debian 4.9.2-10+deb8u1) 4.9.2
 #
 CONFIG_64BIT=y
 CONFIG_X86_64=y
@@ -2343,15 +2343,7 @@ CONFIG_SKGE=m
 # CONFIG_SKGE_GENESIS is not set
 CONFIG_SKY2=m
 # CONFIG_SKY2_DEBUG is not set
-CONFIG_NET_VENDOR_MELLANOX=y
-CONFIG_MLX4_EN=m
-CONFIG_MLX4_EN_DCB=y
-CONFIG_MLX4_CORE=m
-CONFIG_MLX4_DEBUG=y
-CONFIG_MLX4_CORE_GEN2=y
-# CONFIG_MLX5_CORE is not set
-# CONFIG_MLXSW_CORE is not set
-# CONFIG_MLXFW is not set
+# CONFIG_NET_VENDOR_MELLANOX is not set
 CONFIG_NET_VENDOR_MICREL=y
 CONFIG_KS8842=m
 CONFIG_KS8851=m
