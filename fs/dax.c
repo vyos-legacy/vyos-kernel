@@ -217,6 +217,9 @@ static inline void *unlock_slot(struct address_space *mapping, void **slot)
 	return (void *)entry;
 }
 
+static void put_unlocked_mapping_entry(struct address_space *mapping,
+				       pgoff_t index, void *entry);
+
 /*
  * Lookup entry in radix tree, wait for it to become unlocked if it is
  * exceptional entry and return it. The caller must call
@@ -256,8 +259,10 @@ static void *__get_unlocked_mapping_entry(struct address_space *mapping,
 		revalidate = wait_fn();
 		finish_wait(wq, &ewait.wait);
 		xa_lock_irq(&mapping->i_pages);
-		if (revalidate)
+		if (revalidate) {
+			put_unlocked_mapping_entry(mapping, index, entry);
 			return ERR_PTR(-EAGAIN);
+		}
 	}
 }
 
@@ -418,7 +423,7 @@ bool dax_lock_mapping_entry(struct page *page)
 	for (;;) {
 		mapping = READ_ONCE(page->mapping);
 
-		if (!dax_mapping(mapping))
+		if (!mapping || !dax_mapping(mapping))
 			break;
 
 		/*
